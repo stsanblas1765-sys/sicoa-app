@@ -844,6 +844,10 @@ async function doLogin() {
       initDashboard(); showScreen('main');
       toast('ACCESO CONCEDIDO — ' + res.elemento.rango, 'success');
       if (!appEstaInstalada()) setTimeout(abrirOnboarding, 800);
+      // Iniciar sesión también cuenta como check-in real: así el reloj de
+      // 60:00 que se resetea en pantalla coincide con lo que el servidor
+      // realmente tiene registrado (antes solo se reseteaba visualmente).
+      if (res.elemento.monitoreoActivo) doCheckin();
     } else {
       toast(res.error || 'Acceso denegado', 'error');
       detenerPrewarmCamara(); // login falló: no dejar la cámara encendida de gratis
