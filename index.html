@@ -685,7 +685,7 @@ const STATE = {
   armaActiva: false, qrActual: null,
   fotosApagado: { corta: null, larga: null },
   fotoPerfilRegistroBase64: null,
-  monitoreoInterval: null, monitoreoSecsLeft: 3600,
+  monitoreoInterval: null, monitoreoDeadline: null, _monitoreoAlertaLanzada: false,
   monitoreoHist: [], camStream: null, qrInterval: null,
   masterPollInterval: null, alertasConocidas: {}, leafletMap: null, mapMarkers: {}, trazoLayer: null,
   qrObj: null
@@ -1153,25 +1153,38 @@ function updateArmaStatus(accion, armaInfo) {
 // MONITOREO (ELEMENTO)
 // ============================================================
 function startMonitoreo() {
-  STATE.monitoreoSecsLeft = 3600; updateMonitoreoTimers();
+  // En vez de contar segundo por segundo (STATE.monitoreoSecsLeft--), que se
+  // congela cuando el navegador pausa el temporizador con la pantalla
+  // bloqueada o la app en segundo plano, guardamos la HORA REAL en la que
+  // vence el próximo check-in. El tiempo restante se calcula siempre contra
+  // esa hora real, así que se autocorrige al instante sin importar cuánto
+  // tiempo estuvo el teléfono en segundo plano.
+  STATE.monitoreoDeadline = Date.now() + 3600000;
+  STATE._monitoreoAlertaLanzada = false;
+  updateMonitoreoTimers();
   if (STATE.monitoreoInterval) clearInterval(STATE.monitoreoInterval);
-  STATE.monitoreoInterval = setInterval(() => {
-    STATE.monitoreoSecsLeft--;
-    if (STATE.monitoreoSecsLeft <= 0) {
-      STATE.monitoreoSecsLeft = 0;
-      toast('⚠ REPORTAR POSICIÓN AHORA', 'error');
-      if (navigator.vibrate) navigator.vibrate([300,100,300,100,300]);
-    }
-    updateMonitoreoTimers();
-  }, 1000);
+  STATE.monitoreoInterval = setInterval(updateMonitoreoTimers, 1000);
 }
 function stopMonitoreo() { if (STATE.monitoreoInterval) { clearInterval(STATE.monitoreoInterval); STATE.monitoreoInterval = null; } }
 function updateMonitoreoTimers() {
-  const s = STATE.monitoreoSecsLeft;
+  if (!STATE.monitoreoDeadline) return;
+  const s = Math.max(0, Math.round((STATE.monitoreoDeadline - Date.now()) / 1000));
   const mm = String(Math.floor(s/60)).padStart(2,'0'), ss = String(s%60).padStart(2,'0');
   const timeStr = mm + ':' + ss, urgent = s <= 300;
   ['mon-timer','mon-timer-dash'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = timeStr; el.classList.toggle('urgent', urgent); } });
+  if (s <= 0 && !STATE._monitoreoAlertaLanzada) {
+    STATE._monitoreoAlertaLanzada = true;
+    toast('⚠ REPORTAR POSICIÓN AHORA', 'error');
+    if (navigator.vibrate) navigator.vibrate([300,100,300,100,300]);
+  }
 }
+// Al volver a la pestaña/app (regresar de segundo plano, desbloquear
+// pantalla, cambiar de app y volver), recalcular el reloj de inmediato en
+// vez de esperar al siguiente "tick" del intervalo, que también pudo
+// haberse pausado.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) updateMonitoreoTimers();
+});
 async function doCheckin() {
   showLoading('OBTENIENDO POSICIÓN...');
   try {
@@ -1182,7 +1195,7 @@ async function doCheckin() {
       precision: coords ? coords.accuracy : null, estadoArma: STATE.armaActiva ? 'ACTIVA' : 'INACTIVA'
     });
     if (res.success) {
-      STATE.monitoreoSecsLeft = 3600; updateMonitoreoTimers();
+      STATE.monitoreoDeadline = Date.now() + 3600000; STATE._monitoreoAlertaLanzada = false; updateMonitoreoTimers();
       const coordText = coords ? `LAT: ${coords.lat.toFixed(6)} | LNG: ${coords.lng.toFixed(6)}` : 'POSICIÓN NO DISPONIBLE';
       ['coord-display','coord-dash'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = coordText; });
       STATE.monitoreoHist.unshift({ ts: new Date().toLocaleTimeString('es-MX'), coords: coordText, arma: STATE.armaActiva ? 'ACTIVA' : 'INACTIVA' });
