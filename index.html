@@ -582,7 +582,7 @@ body::before {
     <div class="content hidden" id="tab-mon">
       <div class="section-title">MONITOREO DE POSICIÓN</div>
       <div class="monitoreo-card">
-        <div class="monitoreo-label">TIEMPO PARA PRÓXIMO REPORTE</div>
+        <div class="monitoreo-label">PRÓXIMO CHECK-IN EN</div>
         <div class="monitoreo-timer" id="mon-timer">60:00</div>
         <div class="monitoreo-label" id="mon-arma-status">ARMA: INACTIVA</div>
         <div class="coord-display" id="coord-display">UBICACIÓN NO DISPONIBLE</div>
@@ -638,6 +638,27 @@ body::before {
           <option value="">— seleccionar elemento —</option>
         </select>
       </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label class="field-label">FECHA</label>
+          <input class="field-input" type="date" id="trazo-fecha">
+        </div>
+        <div class="field-group">
+          <label class="field-label">&nbsp;</label>
+          <button class="btn-secondary" style="padding:12px;" onclick="cargarTrazoSeleccionado()">🔍 FILTRAR TRAZO</button>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label class="field-label">DESDE LA HORA</label>
+          <input class="field-input" type="time" id="trazo-hora-desde" value="00:00">
+        </div>
+        <div class="field-group">
+          <label class="field-label">HASTA LA HORA</label>
+          <input class="field-input" type="time" id="trazo-hora-hasta" value="23:59">
+        </div>
+      </div>
+      <div id="trazo-info" class="field-hint" style="margin-bottom:12px;"></div>
 
       <div class="section-title mt-16">GENERAR QR DE IDENTIFICACIÓN (PERSONA)</div>
       <div class="field-hint" style="margin-bottom:10px;">Ficha informativa de la persona — NO es el QR que se escanea al activar el arma.</div>
@@ -685,7 +706,7 @@ const STATE = {
   armaActiva: false, qrActual: null,
   fotosApagado: { corta: null, larga: null },
   fotoPerfilRegistroBase64: null,
-  monitoreoInterval: null, monitoreoDeadline: null, _monitoreoAlertaLanzada: false,
+  monitoreoInterval: null, monitoreoDeadline: null, _monitoreoAlertaLanzada: false, _reintentoAlertaInterval: null,
   monitoreoHist: [], camStream: null, qrInterval: null,
   masterPollInterval: null, alertasConocidas: {}, leafletMap: null, mapMarkers: {}, trazoLayer: null,
   qrObj: null
@@ -696,6 +717,22 @@ const STATE = {
 // Debe terminar en /exec — es la misma que ya usabas para abrir el sistema.
 // ============================================================
 const API_URL = 'https://script.google.com/macros/s/AKfycbw3Zq7xdx1veDTEAxZZ1s4igB0-FMwj87_5A7RdcKwBRfo6uGUsR0LRrNyyBULXP3M9IA/exec';
+
+// ============================================================
+// CONFIGURACIÓN DE FIREBASE (notificaciones push reales)
+// Rellena esto con los valores de tu proyecto de Firebase — ver guía en el chat.
+// Estos valores son PÚBLICOS por diseño (a diferencia de la clave de la
+// cuenta de servicio, que va en Apps Script, nunca aquí).
+// ============================================================
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDUmS8zjc_cAxNEVRVQC8zgikc6hClvB4E",
+  authDomain: "sicoa-7885a.firebaseapp.com",
+  projectId: "sicoa-7885a",
+  storageBucket: "sicoa-7885a.firebasestorage.app",
+  messagingSenderId: "522229884003",
+  appId: "1:522229884003:web:3aa0c61a0d0a9647464456"
+};
+const FCM_VAPID_KEY = 'BOibql1mcEsxirRHEQrlUvJmQr6wl7PsT1slov_qcD8JRRKME9NnNmipJIyoxvxVT8vZZIzkQhesok04TE31Llw';
 
 const IS_GAS = false; // este archivo ya NO vive dentro de Apps Script — siempre usa fetch()
 
@@ -844,10 +881,9 @@ async function doLogin() {
       initDashboard(); showScreen('main');
       toast('ACCESO CONCEDIDO — ' + res.elemento.rango, 'success');
       if (!appEstaInstalada()) setTimeout(abrirOnboarding, 800);
-      // Iniciar sesión también cuenta como check-in real: así el reloj de
-      // 60:00 que se resetea en pantalla coincide con lo que el servidor
-      // realmente tiene registrado (antes solo se reseteaba visualmente).
-      if (res.elemento.monitoreoActivo) doCheckin();
+      configurarNotificacionesPushSiListo();
+      // El seguimiento en tiempo real ya arranca solo dentro de initDashboard()
+      // -> startMonitoreo() si el elemento tiene monitoreo activo.
     } else {
       toast(res.error || 'Acceso denegado', 'error');
       detenerPrewarmCamara(); // login falló: no dejar la cámara encendida de gratis
@@ -970,9 +1006,39 @@ function copiarURLActual() {
   }
 }
 
+function esFirebaseConfigurado() {
+  return FIREBASE_CONFIG.apiKey.indexOf('TU_') !== 0 && FCM_VAPID_KEY.indexOf('TU_') !== 0;
+}
+
+let _configurandoPush = false;
+async function configurarNotificacionesPushSiListo() {
+  // Se llama tanto cuando termina de cargar el SDK de Firebase como después
+  // del login — solo actúa cuando AMBAS condiciones ya se cumplieron y la
+  // configuración de Firebase ya fue rellenada.
+  if (_configurandoPush) return;
+  if (!esFirebaseConfigurado()) return;
+  if (typeof firebase === 'undefined' || !firebase.messaging) return;
+  if (!STATE.usuario || STATE.master) return; // solo para elementos, con sesión iniciada
+  if (!('serviceWorker' in navigator)) return;
+
+  _configurandoPush = true;
+  try {
+    if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    const registration = await navigator.serviceWorker.register('firebase-messaging-sw.js');
+    const messaging = firebase.messaging();
+    const token = await messaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: registration });
+    if (token) {
+      await callBackend('guardarTokenPush', { idElemento: STATE.usuario.id, token: token });
+      console.log('[SICOA] Notificaciones push configuradas correctamente.');
+    }
+  } catch (e) {
+    console.warn('[SICOA] No se pudo configurar notificaciones push:', e.message);
+  } finally {
+    _configurandoPush = false;
+  }
+}
 function esNavegadorIntegrado() {
   const ua = navigator.userAgent || '';
-  // Firmas típicas de navegadores integrados (in-app browsers) que suelen
   // bloquear getUserMedia (cámara) sin importar el permiso que el usuario acepte.
   return /FBAN|FBAV|Instagram|Line\/|MicroMessenger|TikTok|WhatsApp|GSA\/|SnapChat/i.test(ua);
 }
@@ -1150,15 +1216,14 @@ function updateArmaStatus(accion, armaInfo) {
 }
 
 // ============================================================
-// MONITOREO (ELEMENTO)
+// MONITOREO (ELEMENTO) — conteo por intervalo, con notificación real
+// (sonido audible + notificación del sistema) cuando toca reportar.
 // ============================================================
 function startMonitoreo() {
-  // En vez de contar segundo por segundo (STATE.monitoreoSecsLeft--), que se
-  // congela cuando el navegador pausa el temporizador con la pantalla
-  // bloqueada o la app en segundo plano, guardamos la HORA REAL en la que
-  // vence el próximo check-in. El tiempo restante se calcula siempre contra
-  // esa hora real, así que se autocorrige al instante sin importar cuánto
-  // tiempo estuvo el teléfono en segundo plano.
+  // La hora en que vence el próximo check-in se guarda como una marca de
+  // tiempo real (no un contador que se decrementa), así el reloj se
+  // autocorrige al instante al volver de segundo plano, sin importar cuánto
+  // tiempo estuvo el navegador pausado.
   STATE.monitoreoDeadline = Date.now() + 3600000;
   STATE._monitoreoAlertaLanzada = false;
   updateMonitoreoTimers();
@@ -1166,6 +1231,7 @@ function startMonitoreo() {
   STATE.monitoreoInterval = setInterval(updateMonitoreoTimers, 1000);
 }
 function stopMonitoreo() { if (STATE.monitoreoInterval) { clearInterval(STATE.monitoreoInterval); STATE.monitoreoInterval = null; } }
+
 function updateMonitoreoTimers() {
   if (!STATE.monitoreoDeadline) return;
   const s = Math.max(0, Math.round((STATE.monitoreoDeadline - Date.now()) / 1000));
@@ -1174,17 +1240,64 @@ function updateMonitoreoTimers() {
   ['mon-timer','mon-timer-dash'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = timeStr; el.classList.toggle('urgent', urgent); } });
   if (s <= 0 && !STATE._monitoreoAlertaLanzada) {
     STATE._monitoreoAlertaLanzada = true;
-    toast('⚠ REPORTAR POSICIÓN AHORA', 'error');
-    if (navigator.vibrate) navigator.vibrate([300,100,300,100,300]);
+    dispararAlertaReportar();
   }
 }
-// Al volver a la pestaña/app (regresar de segundo plano, desbloquear
-// pantalla, cambiar de app y volver), recalcular el reloj de inmediato en
-// vez de esperar al siguiente "tick" del intervalo, que también pudo
-// haberse pausado.
+
+// Notificación REAL: sonido audible (Web Audio, no depende de ningún
+// permiso) + notificación del sistema (si el permiso ya fue concedido) +
+// vibración. Se repite cada 60s mientras no se reporte, para que sea
+// imposible no darse cuenta.
+function dispararAlertaReportar() {
+  toast('⚠ REPORTAR POSICIÓN AHORA', 'error');
+  reproducirSonidoAlerta();
+  if (navigator.vibrate) navigator.vibrate([300,100,300,100,300]);
+
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try {
+      const n = new Notification('SICOA — Reporta tu posición', {
+        body: 'Ya pasó tu intervalo de check-in. Abre la app y toca "Reportar posición".',
+        tag: 'sicoa-recordatorio-checkin',
+        requireInteraction: true
+      });
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch(e) {}
+  }
+
+  // Insiste cada 60s mientras siga sin reportar, en vez de avisar una sola vez.
+  if (STATE._reintentoAlertaInterval) clearInterval(STATE._reintentoAlertaInterval);
+  STATE._reintentoAlertaInterval = setInterval(() => {
+    if (!STATE._monitoreoAlertaLanzada) { clearInterval(STATE._reintentoAlertaInterval); return; }
+    reproducirSonidoAlerta();
+    if (navigator.vibrate) navigator.vibrate([300,100,300]);
+  }, 60000);
+}
+
+// Beep de alarma generado con Web Audio API — no depende de ningún archivo
+// de audio externo ni de ningún permiso especial, solo de que el usuario ya
+// haya interactuado antes con la página (login, clics), lo cual siempre es
+// el caso aquí.
+function reproducirSonidoAlerta() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.25, 0.5].forEach(offset => {
+      const osc = ctx.createOscillator(); const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = 880; osc.type = 'square';
+      gain.gain.setValueAtTime(0.15, ctx.currentTime + offset);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + 0.2);
+      osc.start(ctx.currentTime + offset);
+      osc.stop(ctx.currentTime + offset + 0.2);
+    });
+  } catch(e) { console.warn('No se pudo reproducir el sonido de alerta:', e); }
+}
+
+// Al volver a la pestaña/app, recalcular el reloj de inmediato en vez de
+// esperar al siguiente "tick" del intervalo (que también pudo pausarse).
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) updateMonitoreoTimers();
 });
+
 async function doCheckin() {
   showLoading('OBTENIENDO POSICIÓN...');
   try {
@@ -1195,7 +1308,10 @@ async function doCheckin() {
       precision: coords ? coords.accuracy : null, estadoArma: STATE.armaActiva ? 'ACTIVA' : 'INACTIVA'
     });
     if (res.success) {
-      STATE.monitoreoDeadline = Date.now() + 3600000; STATE._monitoreoAlertaLanzada = false; updateMonitoreoTimers();
+      STATE.monitoreoDeadline = Date.now() + 3600000;
+      STATE._monitoreoAlertaLanzada = false;
+      if (STATE._reintentoAlertaInterval) { clearInterval(STATE._reintentoAlertaInterval); STATE._reintentoAlertaInterval = null; }
+      updateMonitoreoTimers();
       const coordText = coords ? `LAT: ${coords.lat.toFixed(6)} | LNG: ${coords.lng.toFixed(6)}` : 'POSICIÓN NO DISPONIBLE';
       ['coord-display','coord-dash'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = coordText; });
       STATE.monitoreoHist.unshift({ ts: new Date().toLocaleTimeString('es-MX'), coords: coordText, arma: STATE.armaActiva ? 'ACTIVA' : 'INACTIVA' });
@@ -1801,10 +1917,30 @@ function cargarCSSExterno(href) {
   document.head.appendChild(l);
 }
 
+function cargarFirebaseEnOrden() {
+  // firebase-messaging-compat.js necesita que firebase-app-compat.js ya esté
+  // cargado. Los <script> insertados dinámicamente no garantizan el orden
+  // de ejecución por defecto, así que se fuerza con async=false.
+  const s1 = document.createElement('script');
+  s1.src = 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js';
+  s1.async = false;
+  s1.onload = () => { window.LIB_STATUS.FirebaseApp = true; };
+  s1.onerror = () => { window.LIB_STATUS.FirebaseApp = false; console.warn('No se pudo cargar Firebase App'); };
+  document.body.appendChild(s1);
+
+  const s2 = document.createElement('script');
+  s2.src = 'https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js';
+  s2.async = false;
+  s2.onload = () => { window.LIB_STATUS.FirebaseMessaging = true; configurarNotificacionesPushSiListo(); };
+  s2.onerror = () => { window.LIB_STATUS.FirebaseMessaging = false; console.warn('No se pudo cargar Firebase Messaging'); };
+  document.body.appendChild(s2);
+}
+
 cargarCSSExterno('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css');
 cargarScriptExterno('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js', 'jsQR', null);
 cargarScriptExterno('https://cdn.jsdelivr.net/npm/davidshimjs-qrcodejs@0.0.2/qrcode.min.js', 'QRCode', null);
 cargarScriptExterno('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js', 'Leaflet', null);
+cargarFirebaseEnOrden();
 
 // ============================================================
 // INICIALIZACIÓN GENERAL
