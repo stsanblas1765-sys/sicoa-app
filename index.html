@@ -424,17 +424,6 @@ body::before {
       <div style="text-align:center;margin-top:24px;font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:2px;">
         SICOA — v2.0 SEGURIDAD PRIVADA<br>SISTEMA DE CONTROL DE ARMAMENTO
       </div>
-
-      <div style="margin-top:20px;padding:14px;background:#111;border:1px solid #444;border-radius:8px;">
-        <div style="text-align:center;color:#6cf;font-family:var(--mono);font-size:11px;letter-spacing:1px;margin-bottom:10px;">🔧 DIAGNÓSTICO DE PERMISOS</div>
-        <button type="button" style="width:100%;padding:10px;margin-bottom:6px;background:#2266cc;color:#fff;border:none;border-radius:6px;font-size:13px;" onclick="diagProbarCamara()">📷 PROBAR CÁMARA</button>
-        <div id="diag-res-camara" style="font-family:var(--mono);font-size:10px;color:#999;padding:6px;white-space:pre-wrap;word-break:break-word;">Sin probar.</div>
-        <button type="button" style="width:100%;padding:10px;margin:6px 0;background:#229955;color:#fff;border:none;border-radius:6px;font-size:13px;" onclick="diagProbarUbicacion()">📍 PROBAR UBICACIÓN</button>
-        <div id="diag-res-ubicacion" style="font-family:var(--mono);font-size:10px;color:#999;padding:6px;white-space:pre-wrap;word-break:break-word;">Sin probar.</div>
-        <button type="button" style="width:100%;padding:10px;margin:6px 0;background:#aa6600;color:#fff;border:none;border-radius:6px;font-size:13px;" onclick="diagProbarNotif()">🔔 PROBAR NOTIFICACIONES</button>
-        <div id="diag-res-notif" style="font-family:var(--mono);font-size:10px;color:#999;padding:6px;white-space:pre-wrap;word-break:break-word;">Sin probar.</div>
-        <div id="diag-entorno" style="font-family:var(--mono);font-size:9px;color:#666;margin-top:10px;white-space:pre-wrap;word-break:break-word;"></div>
-      </div>
     </div>
   </div>
 
@@ -715,16 +704,26 @@ function callBackend(action, params) {
     console.warn('[SICOA] Configura API_URL en Index.html con tu URL real de Apps Script.');
     return Promise.resolve(getDemoResponse(action, params));
   }
+  const payload = JSON.stringify({ action: action, params: params || {} });
+
+  // GET es más confiable con Apps Script en llamadas entre dominios: la
+  // redirección interna que hace Apps Script en POST a veces impide que el
+  // navegador lea la respuesta (CORS), aunque la petición sí se procese.
+  const urlGet = API_URL + '?data=' + encodeURIComponent(payload);
+  if (urlGet.length < 6000) {
+    return fetch(urlGet, { method: 'GET' })
+      .then(res => res.json())
+      .catch(err => ({ success: false, error: 'Error de red (GET): ' + err.message }));
+  }
+
+  // Payload grande (ej. fotos en base64) — no cabe en una URL, usar POST.
   return fetch(API_URL, {
     method: 'POST',
-    // Content-Type "text/plain" a propósito: evita que el navegador dispare
-    // una solicitud preflight OPTIONS (que Apps Script no responde), lo que
-    // rompería la llamada por CORS. Apps Script igual lee el JSON del body.
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: action, params: params || {} })
+    body: payload
   })
     .then(res => res.json())
-    .catch(err => ({ success: false, error: 'Error de red: ' + err.message }));
+    .catch(err => ({ success: false, error: 'Error de red (POST): ' + err.message }));
 }
 function getDemoResponse(action) {
   const demos = {
@@ -965,47 +964,6 @@ function copiarURLActual() {
   } else {
     toast('Selecciona el texto de la dirección y cópialo manualmente', 'warning');
   }
-}
-
-// ============================================================
-// DIAGNÓSTICO AISLADO DE PERMISOS (pantalla de login, sin login)
-// Completamente independiente del resto del código, a propósito.
-// ============================================================
-document.getElementById('diag-entorno').textContent =
-  'UA: ' + navigator.userAgent + '\nHTTPS seguro: ' + window.isSecureContext +
-  '\nmediaDevices: ' + !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) +
-  '\nNotification: ' + ('Notification' in window);
-
-function diagProbarCamara() {
-  const el = document.getElementById('diag-res-camara');
-  el.textContent = 'Solicitando...'; el.style.color = '#999';
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    el.textContent = 'getUserMedia NO EXISTE en este navegador.'; el.style.color = '#f77'; return;
-  }
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(stream => {
-    el.textContent = '✅ ÉXITO: cámara concedida.'; el.style.color = '#7f7';
-    stream.getTracks().forEach(t => t.stop());
-  }).catch(err => {
-    el.textContent = '❌ ' + err.name + ': ' + (err.message || 'sin mensaje'); el.style.color = '#f77';
-  });
-}
-function diagProbarUbicacion() {
-  const el = document.getElementById('diag-res-ubicacion');
-  el.textContent = 'Solicitando...'; el.style.color = '#999';
-  if (!navigator.geolocation) { el.textContent = 'geolocation NO EXISTE.'; el.style.color = '#f77'; return; }
-  navigator.geolocation.getCurrentPosition(
-    pos => { el.textContent = '✅ ÉXITO: ' + pos.coords.latitude.toFixed(4) + ', ' + pos.coords.longitude.toFixed(4); el.style.color = '#7f7'; },
-    err => { el.textContent = '❌ código ' + err.code + ': ' + err.message; el.style.color = '#f77'; },
-    { timeout: 8000 }
-  );
-}
-function diagProbarNotif() {
-  const el = document.getElementById('diag-res-notif');
-  el.textContent = 'Solicitando...'; el.style.color = '#999';
-  if (!('Notification' in window)) { el.textContent = 'Notification NO EXISTE en este navegador.'; el.style.color = '#f77'; return; }
-  Notification.requestPermission().then(perm => {
-    el.textContent = 'Resultado: ' + perm; el.style.color = perm === 'granted' ? '#7f7' : '#f77';
-  }).catch(err => { el.textContent = '❌ ' + err.message; el.style.color = '#f77'; });
 }
 
 function esNavegadorIntegrado() {
