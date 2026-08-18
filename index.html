@@ -1,0 +1,1846 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SICOA — Control de Armamento</title>
+<meta name="theme-color" content="#cc0000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SICOA">
+<link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjogIlNJQ09BIC0gQ29udHJvbCBkZSBBcm1hbWVudG8iLCAic2hvcnRfbmFtZSI6ICJTSUNPQSIsICJzdGFydF91cmwiOiAiLiIsICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLCAiYmFja2dyb3VuZF9jb2xvciI6ICIjMDgwODA4IiwgInRoZW1lX2NvbG9yIjogIiNjYzAwMDAiLCAiZGVzY3JpcHRpb24iOiAiU2lzdGVtYSBkZSBDb250cm9sIGRlIEFybWFtZW50byBwYXJhIEVzY29sdGFzIGRlIFNlZ3VyaWRhZCIsICJpY29ucyI6IFtdfQ==">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+
+<!-- jsQR, QRCode y Leaflet (JS + CSS) se cargan al final del <body> de forma
+     diferida y con manejo de error — así NUNCA bloquean el script principal
+     (login, registro, panel maestro) si la red del usuario filtra jsdelivr.net -->
+<!-- Nota: jsdelivr.net, comprobado que funciona en la red institucional del usuario
+     (verificado con otro sistema propio: BitFields Casetas). cdnjs.cloudflare.com
+     estaba bloqueado y era la causa real de que cámara/QR/mapa no cargaran. -->
+
+<style>
+:root {
+  --red:#cc0000; --red-bright:#ff1a1a; --red-dark:#880000; --red-glow:rgba(204,0,0,0.4);
+  --bg:#080808; --bg2:#0f0f0f; --bg3:#161616; --bg4:#1e1e1e;
+  --border:rgba(204,0,0,0.2); --border-bright:rgba(204,0,0,0.6);
+  --text:#e0e0e0; --text-dim:#777; --text-bright:#ffffff;
+  --green:#00cc44; --amber:#ffaa00; --blue:#2288ff;
+  --mono:'Share Tech Mono', monospace; --display:'Barlow Condensed', sans-serif; --body:'Rajdhani', sans-serif;
+}
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--text); font-family:var(--body); }
+body::before {
+  content:''; position:fixed; inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.15) 2px,rgba(0,0,0,0.15) 4px);
+  pointer-events:none; z-index:9999;
+}
+#app { width:100%; height:100vh; height:100dvh; display:flex; flex-direction:column; overflow:hidden; position:relative; }
+.screen { display:none; flex-direction:column; height:100%; overflow:hidden; animation:fadeIn 0.3s ease; }
+.screen.active { display:flex; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px);} to{opacity:1;transform:translateY(0);} }
+
+.topbar { background:var(--bg2); border-bottom:1px solid var(--border); padding:10px 16px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; position:relative; overflow:hidden; }
+.topbar::after { content:''; position:absolute; bottom:0; left:0; width:100%; height:2px; background:linear-gradient(90deg,transparent,var(--red),transparent); }
+.topbar-logo { display:flex; align-items:center; gap:10px; }
+.logo-icon { width:32px; height:32px; border:1.5px solid var(--red); display:flex; align-items:center; justify-content:center; font-size:14px; color:var(--red); font-family:var(--mono); position:relative; }
+.logo-text { font-family:var(--display); font-weight:800; font-size:20px; letter-spacing:4px; color:var(--text-bright); line-height:1; }
+.logo-sub { font-family:var(--mono); font-size:9px; color:var(--red); letter-spacing:2px; line-height:1; margin-top:2px; }
+.topbar-right { display:flex; align-items:center; gap:12px; }
+.user-chip { display:flex; align-items:center; gap:8px; background:var(--bg3); border:1px solid var(--border); padding:4px 10px 4px 4px; cursor:pointer; }
+.user-chip-placeholder { width:26px; height:26px; background:var(--bg4); border:1px solid var(--red); display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--red); font-family:var(--mono); overflow:hidden; flex-shrink:0; position:relative; }
+.user-name { font-family:var(--display); font-weight:600; font-size:13px; letter-spacing:1px; color:var(--text); }
+.status-dot { width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 6px var(--green); animation:pulse-dot 2s infinite; }
+@keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+
+.nav-bottom { background:var(--bg2); border-top:1px solid var(--border); display:flex; flex-shrink:0; }
+.nav-btn { flex:1; padding:12px 4px; background:transparent; border:none; color:var(--text-dim); display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer; font-family:var(--display); font-size:10px; letter-spacing:1px; font-weight:600; transition:color 0.2s; position:relative; }
+.nav-btn.active { color:var(--red); }
+.nav-btn.active::before { content:''; position:absolute; top:0; left:25%; right:25%; height:2px; background:var(--red); box-shadow:0 0 6px var(--red); }
+.nav-btn svg { width:22px; height:22px; }
+.nav-badge { position:absolute; top:4px; right:22%; background:var(--red-bright); color:#fff; font-size:9px; font-family:var(--mono); min-width:14px; height:14px; border-radius:7px; display:flex; align-items:center; justify-content:center; padding:0 3px; }
+
+.content { flex:1; overflow-y:auto; overflow-x:hidden; padding:16px; scrollbar-width:thin; scrollbar-color:var(--red-dark) var(--bg); }
+.content::-webkit-scrollbar { width:3px; }
+.content::-webkit-scrollbar-track { background:var(--bg); }
+.content::-webkit-scrollbar-thumb { background:var(--red-dark); }
+
+#screen-login, #screen-register { background:var(--bg); justify-content:center; align-items:center; gap:0; overflow-y:auto; }
+.login-bg { position:absolute; inset:0; background:radial-gradient(ellipse at 50% 0%,rgba(204,0,0,0.12) 0%,transparent 60%),radial-gradient(ellipse at 0% 100%,rgba(204,0,0,0.06) 0%,transparent 50%); }
+.login-grid { position:absolute; inset:0; background-image:linear-gradient(rgba(204,0,0,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(204,0,0,0.04) 1px,transparent 1px); background-size:40px 40px; }
+.login-box { position:relative; z-index:1; width:100%; max-width:380px; padding:24px 24px 40px; }
+.login-emblem { text-align:center; margin-bottom:32px; }
+.login-emblem-ring { width:80px; height:80px; border:2px solid var(--red); border-radius:50%; display:inline-flex; align-items:center; justify-content:center; position:relative; margin-bottom:16px; box-shadow:0 0 20px var(--red-glow), inset 0 0 20px rgba(204,0,0,0.05); }
+.login-emblem-ring svg { width:32px; height:32px; color:var(--red); }
+.login-title { font-family:var(--display); font-weight:800; font-size:36px; letter-spacing:8px; color:var(--text-bright); line-height:1; }
+.login-subtitle { font-family:var(--mono); font-size:10px; color:var(--red); letter-spacing:3px; margin-top:6px; }
+
+.field-group { margin-bottom:16px; }
+.field-label { font-family:var(--mono); font-size:10px; color:var(--red); letter-spacing:2px; margin-bottom:6px; display:block; }
+.field-input, .select-field { width:100%; background:var(--bg3); border:1px solid var(--border); border-left:2px solid var(--red-dark); color:var(--text-bright); padding:12px 14px; font-family:var(--mono); font-size:14px; letter-spacing:1px; outline:none; transition:border-color 0.2s, box-shadow 0.2s; -webkit-appearance:none; appearance:none; }
+.field-input:focus, .select-field:focus { border-color:var(--red); border-left-color:var(--red); box-shadow:0 0 0 1px rgba(204,0,0,0.2); }
+.field-input::placeholder { color:var(--text-dim); font-size:12px; }
+.field-hint { font-family:var(--mono); font-size:9px; color:var(--text-dim); margin-top:4px; letter-spacing:1px; }
+.field-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+.btn-primary { width:100%; background:var(--red); border:none; color:var(--text-bright); padding:14px; font-family:var(--display); font-weight:700; font-size:16px; letter-spacing:4px; cursor:pointer; transition:background 0.2s, box-shadow 0.2s, transform 0.1s; }
+.btn-primary:active { transform:scale(0.98); }
+.btn-primary:hover { background:var(--red-bright); box-shadow:0 0 20px var(--red-glow); }
+.btn-primary:disabled { opacity:0.5; pointer-events:none; }
+.btn-secondary { background:transparent; border:1px solid var(--border); color:var(--text-dim); padding:12px; font-family:var(--display); font-weight:600; font-size:14px; letter-spacing:2px; cursor:pointer; transition:all 0.2s; width:100%; }
+.btn-secondary:hover { border-color:var(--red); color:var(--red); }
+.btn-master { background:transparent; border:1px solid var(--blue); color:var(--blue); padding:10px; font-family:var(--mono); font-size:11px; letter-spacing:2px; cursor:pointer; width:100%; margin-top:10px; }
+.btn-master:hover { background:rgba(34,136,255,0.1); }
+
+.dash-header { margin-bottom:20px; }
+.dash-greeting { font-family:var(--mono); font-size:11px; color:var(--text-dim); letter-spacing:2px; margin-bottom:4px; }
+.dash-name { font-family:var(--display); font-weight:800; font-size:28px; letter-spacing:2px; color:var(--text-bright); line-height:1; }
+.dash-badge { font-family:var(--mono); font-size:12px; color:var(--red); margin-top:4px; }
+
+.stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px; }
+.stat-card { background:var(--bg3); border:1px solid var(--border); padding:14px; position:relative; overflow:hidden; }
+.stat-card::before { content:''; position:absolute; top:0; left:0; width:2px; height:100%; background:var(--red); }
+.stat-label { font-family:var(--mono); font-size:9px; color:var(--text-dim); letter-spacing:2px; margin-bottom:6px; }
+.stat-value { font-family:var(--display); font-weight:800; font-size:26px; color:var(--text-bright); line-height:1; }
+.stat-sub { font-family:var(--mono); font-size:10px; color:var(--red); margin-top:4px; }
+
+.arma-card { background:var(--bg3); border:1px solid var(--border); padding:16px; margin-bottom:16px; position:relative; overflow:hidden; }
+.arma-card.activa { border-color:rgba(0,204,68,0.4); }
+.arma-card-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+.arma-tipo { font-family:var(--display); font-weight:800; font-size:20px; letter-spacing:2px; color:var(--text-bright); }
+.arma-badge { font-family:var(--mono); font-size:10px; padding:3px 8px; border:1px solid; }
+.arma-badge.off { border-color:var(--text-dim); color:var(--text-dim); }
+.arma-badge.on { border-color:var(--green); color:var(--green); background:rgba(0,204,68,0.08); }
+.arma-info-row { display:flex; gap:16px; margin-bottom:12px; }
+.arma-info-label { font-family:var(--mono); font-size:9px; color:var(--text-dim); letter-spacing:1px; }
+.arma-info-val { font-family:var(--display); font-size:14px; font-weight:600; color:var(--text); }
+
+.scanner-wrap { position:relative; width:100%; aspect-ratio:1; background:#000; overflow:hidden; border:1px solid var(--border); margin-bottom:16px; }
+#qr-video { width:100%; height:100%; object-fit:cover; }
+.scanner-overlay { position:absolute; inset:0; pointer-events:none; }
+.scanner-corner { position:absolute; width:30px; height:30px; border-color:var(--red); border-style:solid; }
+.sc-tl{top:20px;left:20px;border-width:2px 0 0 2px;} .sc-tr{top:20px;right:20px;border-width:2px 2px 0 0;}
+.sc-bl{bottom:20px;left:20px;border-width:0 0 2px 2px;} .sc-br{bottom:20px;right:20px;border-width:0 2px 2px 0;}
+.scanner-line { position:absolute; left:20px; right:20px; height:2px; background:var(--red); box-shadow:0 0 8px var(--red-glow); animation:scan-line 2s linear infinite; }
+@keyframes scan-line { 0%{top:20px;} 100%{top:calc(100% - 20px);} }
+.scanner-label { text-align:center; font-family:var(--mono); font-size:11px; color:var(--text-dim); letter-spacing:2px; margin-bottom:16px; }
+.qr-result-box { background:var(--bg3); border:1px solid var(--border-bright); padding:12px 16px; margin-bottom:16px; display:none; }
+.qr-result-box.show { display:block; }
+.qr-result-label { font-family:var(--mono); font-size:9px; color:var(--red); letter-spacing:2px; margin-bottom:4px; }
+.qr-result-val { font-family:var(--mono); font-size:14px; color:var(--text-bright); word-break:break-all; }
+
+.arm-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
+.btn-arm-on, .btn-arm-off { padding:16px; font-family:var(--display); font-weight:700; font-size:18px; letter-spacing:3px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:6px; transition:all 0.2s; background:transparent; }
+.btn-arm-on { border:2px solid var(--green); color:var(--green); }
+.btn-arm-on:active,.btn-arm-on:hover { background:rgba(0,204,68,0.1); box-shadow:0 0 15px rgba(0,204,68,0.3); }
+.btn-arm-off { border:2px solid var(--red); color:var(--red); }
+.btn-arm-off:active,.btn-arm-off:hover { background:rgba(204,0,0,0.1); box-shadow:0 0 15px var(--red-glow); }
+.btn-arm-on:disabled,.btn-arm-off:disabled { opacity:0.3; pointer-events:none; }
+
+.foto-section { background:var(--bg3); border:1px solid var(--border); padding:14px; margin-bottom:16px; }
+.foto-title { font-family:var(--display); font-weight:700; font-size:14px; letter-spacing:2px; color:var(--text-dim); margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+.foto-title::before { content:''; display:inline-block; width:16px; height:2px; background:var(--red); }
+.foto-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.foto-slot { aspect-ratio:4/3; background:var(--bg4); border:1px dashed var(--border); display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; position:relative; overflow:hidden; }
+.foto-slot img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.foto-slot-label { font-family:var(--mono); font-size:9px; color:var(--text-dim); letter-spacing:1px; margin-top:6px; z-index:1; }
+.foto-slot-icon { font-size:22px; opacity:0.4; }
+.foto-del { position:absolute; top:4px; right:4px; background:rgba(204,0,0,0.8); border:none; color:#fff; width:22px; height:22px; font-size:12px; cursor:pointer; display:none; align-items:center; justify-content:center; z-index:2; }
+.foto-slot.has-img .foto-del { display:flex; }
+.foto-slot.has-img .foto-slot-icon,.foto-slot.has-img .foto-slot-label { display:none; }
+.foto-perfil-upload { width:100%; aspect-ratio:1; background:var(--bg4); border:2px dashed var(--border); display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; position:relative; overflow:hidden; margin-bottom:16px; max-width:150px; margin:0 auto 16px; }
+.foto-perfil-upload img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+
+.monitoreo-card { background:var(--bg3); border:1px solid var(--border); padding:20px; text-align:center; margin-bottom:16px; position:relative; overflow:hidden; }
+.monitoreo-timer { font-family:var(--mono); font-size:42px; color:var(--amber); letter-spacing:4px; margin:16px 0; text-shadow:0 0 20px rgba(255,170,0,0.4); }
+.monitoreo-timer.urgent { color:var(--red); text-shadow:0 0 20px var(--red-glow); animation:blink-urgent 0.5s ease infinite; }
+@keyframes blink-urgent { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+.monitoreo-label { font-family:var(--display); font-size:12px; letter-spacing:3px; color:var(--text-dim); }
+.btn-check-in { background:var(--amber); border:none; color:#000; padding:18px; font-family:var(--display); font-weight:800; font-size:20px; letter-spacing:4px; cursor:pointer; width:100%; transition:all 0.2s; margin-top:8px; }
+.btn-check-in.checked { background:var(--green); box-shadow:0 0 20px rgba(0,204,68,0.4); }
+.coord-display { font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-top:12px; letter-spacing:1px; }
+
+.toggle-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); margin-bottom:10px; }
+.toggle-label { font-family:var(--body); font-size:14px; color:var(--text); }
+.toggle-switch { width:44px; height:24px; background:var(--bg4); border:1px solid var(--border); position:relative; cursor:pointer; transition:background 0.2s; }
+.toggle-switch.on { background:var(--red-dark); border-color:var(--red); }
+.toggle-switch::after { content:''; position:absolute; top:3px; left:3px; width:16px; height:16px; background:var(--text-dim); transition:transform 0.2s, background 0.2s; }
+.toggle-switch.on::after { transform:translateX(20px); background:var(--red); }
+
+.hist-item { background:var(--bg3); border:1px solid var(--border); border-left:3px solid var(--red-dark); padding:12px 14px; margin-bottom:8px; }
+.hist-item.activar { border-left-color:var(--green); } .hist-item.desactivar { border-left-color:var(--red); }
+.hist-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; }
+.hist-accion { font-family:var(--display); font-weight:700; font-size:16px; letter-spacing:2px; }
+.hist-accion.activar { color:var(--green); } .hist-accion.desactivar { color:var(--red); }
+.hist-ts { font-family:var(--mono); font-size:10px; color:var(--text-dim); }
+.hist-detail { font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+
+#toast-container { position:fixed; top:70px; left:50%; transform:translateX(-50%); z-index:10000; width:calc(100% - 32px); max-width:360px; pointer-events:none; }
+.toast { background:var(--bg2); border:1px solid var(--border); border-left:3px solid var(--red); padding:12px 16px; margin-bottom:8px; font-family:var(--mono); font-size:12px; letter-spacing:1px; animation:toast-in 0.3s ease, toast-out 0.3s ease 3.7s forwards; pointer-events:auto; position:relative; }
+.toast.success { border-left-color:var(--green); } .toast.warning { border-left-color:var(--amber); } .toast.error { border-left-color:var(--red-bright); }
+@keyframes toast-in { from{opacity:0;transform:translateY(-10px);} to{opacity:1;transform:translateY(0);} }
+@keyframes toast-out { from{opacity:1;} to{opacity:0;} }
+
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; align-items:flex-end; justify-content:center; display:none; }
+.modal-overlay.show { display:flex; animation:fadeIn 0.2s ease; }
+.modal-box { background:var(--bg2); border:1px solid var(--border); border-bottom:none; width:100%; max-width:480px; max-height:85vh; overflow-y:auto; padding:24px; position:relative; }
+.modal-box::before { content:''; display:block; width:32px; height:3px; background:var(--border); margin:0 auto 20px; }
+.modal-title { font-family:var(--display); font-weight:800; font-size:22px; letter-spacing:3px; color:var(--red); margin-bottom:20px; }
+.modal-close { position:absolute; top:20px; right:20px; background:transparent; border:1px solid var(--border); color:var(--text-dim); width:30px; height:30px; cursor:pointer; font-size:16px; display:flex; align-items:center; justify-content:center; }
+
+#loading-overlay { position:fixed; inset:0; background:rgba(8,8,8,0.9); z-index:9998; display:none; flex-direction:column; align-items:center; justify-content:center; gap:16px; }
+#loading-overlay.show { display:flex; }
+.loading-spinner { width:50px; height:50px; border:2px solid var(--border); border-top-color:var(--red); border-radius:50%; animation:spin 0.8s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg);} }
+.loading-text { font-family:var(--mono); font-size:12px; color:var(--red); letter-spacing:3px; animation:blink-urgent 1s infinite; }
+
+.section-title { font-family:var(--display); font-weight:700; font-size:13px; letter-spacing:3px; color:var(--text-dim); margin-bottom:12px; display:flex; align-items:center; gap:10px; }
+.section-title::after { content:''; flex:1; height:1px; background:var(--border); }
+.divider { height:1px; background:var(--border); margin:16px 0; }
+.tag { display:inline-block; font-family:var(--mono); font-size:10px; letter-spacing:1px; padding:3px 8px; border:1px solid; }
+.tag-red{border-color:var(--red);color:var(--red);} .tag-green{border-color:var(--green);color:var(--green);}
+.tag-amber{border-color:var(--amber);color:var(--amber);} .tag-dim{border-color:var(--text-dim);color:var(--text-dim);}
+.tag-blue{border-color:var(--blue);color:var(--blue);}
+.empty-state { text-align:center; padding:40px 20px; color:var(--text-dim); font-family:var(--mono); font-size:12px; letter-spacing:2px; }
+.mt-8{margin-top:8px;} .mt-12{margin-top:12px;} .mt-16{margin-top:16px;} .hidden{display:none !important;}
+.link-btn { background:none; border:none; color:var(--red); font-family:var(--mono); font-size:11px; letter-spacing:1px; cursor:pointer; text-decoration:underline; }
+
+/* ===== MASTER DASHBOARD ===== */
+#map-container { width:100%; height:280px; border:1px solid var(--border); margin-bottom:16px; background:#111; }
+.alert-card { background:var(--bg3); border:1px solid var(--red-bright); border-left:4px solid var(--red-bright); padding:14px; margin-bottom:10px; position:relative; }
+.alert-card::before { content:'⚠ ALERTA — SIN REPORTE'; font-family:var(--mono); font-size:9px; color:var(--red-bright); letter-spacing:2px; display:block; margin-bottom:8px; }
+.alert-name { font-family:var(--display); font-weight:800; font-size:18px; color:var(--text-bright); }
+.alert-detail { font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-top:4px; }
+.alert-actions { display:flex; gap:8px; margin-top:10px; }
+.btn-mini { flex:1; background:var(--bg4); border:1px solid var(--border); color:var(--text); padding:8px; font-family:var(--mono); font-size:10px; letter-spacing:1px; cursor:pointer; }
+.btn-mini:hover { border-color:var(--red); color:var(--red); }
+.approval-card { background:var(--bg3); border:1px solid var(--border); padding:12px 14px; margin-bottom:8px; display:flex; align-items:center; gap:12px; }
+.approval-info { flex:1; }
+.approval-name { font-family:var(--display); font-weight:700; font-size:15px; color:var(--text-bright); }
+.approval-detail { font-family:var(--mono); font-size:10px; color:var(--text-dim); }
+.qr-gen-box { background:var(--bg3); border:1px solid var(--border); padding:16px; text-align:center; margin-bottom:16px; }
+#qr-canvas-holder { display:flex; justify-content:center; margin:16px 0; background:#fff; padding:12px; max-width:220px; margin-left:auto; margin-right:auto; }
+.ficha-print { font-family:var(--mono); font-size:11px; color:var(--text); text-align:left; background:var(--bg4); padding:12px; margin-top:12px; }
+.ficha-print div { margin-bottom:4px; }
+.ficha-print b { color:var(--red); }
+.select-elemento { width:100%; margin-bottom:12px; }
+.notif-banner { background:rgba(34,136,255,0.08); border:1px solid var(--blue); padding:10px 14px; margin-bottom:16px; font-family:var(--mono); font-size:11px; color:var(--blue); display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.notif-banner button { background:var(--blue); border:none; color:#000; padding:6px 12px; font-family:var(--mono); font-size:10px; letter-spacing:1px; cursor:pointer; flex-shrink:0; }
+
+/* ===== INSTALAR APP / PERMISOS ===== */
+.install-fab { position:fixed; bottom:70px; right:14px; z-index:500; background:var(--red); color:#fff; border:none; padding:10px 16px; font-family:var(--display); font-weight:700; font-size:12px; letter-spacing:2px; cursor:pointer; box-shadow:0 0 15px var(--red-glow); display:flex; align-items:center; gap:6px; }
+.install-fab.hidden { display:none; }
+.perm-step { display:flex; gap:12px; align-items:flex-start; padding:14px 0; border-bottom:1px solid var(--border); }
+.perm-step:last-child { border-bottom:none; }
+.perm-icon { font-size:24px; flex-shrink:0; width:36px; text-align:center; }
+.perm-text { flex:1; }
+.perm-title { font-family:var(--display); font-weight:700; font-size:15px; color:var(--text-bright); letter-spacing:1px; }
+.perm-desc { font-family:var(--body); font-size:13px; color:var(--text-dim); margin-top:2px; }
+.perm-status { font-family:var(--mono); font-size:10px; letter-spacing:1px; margin-top:6px; }
+.perm-status.ok { color:var(--green); } .perm-status.pending { color:var(--amber); } .perm-status.denied { color:var(--red-bright); }
+.install-instructions { background:var(--bg3); border:1px solid var(--border); padding:14px; margin-top:10px; font-family:var(--body); font-size:13px; line-height:1.6; }
+.install-instructions ol { padding-left:20px; }
+.install-instructions b { color:var(--red); }
+
+@media (max-width:360px) { .login-title{font-size:28px;} .arm-actions{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<div id="loading-overlay"><div class="loading-spinner"></div><div class="loading-text" id="loading-text">PROCESANDO...</div></div>
+<div id="toast-container"></div>
+
+<input type="file" id="input-foto-perfil" accept="image/*" capture="user" style="display:none">
+<input type="file" id="input-foto-corta" accept="image/*" capture="environment" style="display:none">
+<input type="file" id="input-foto-larga" accept="image/*" capture="environment" style="display:none">
+
+<!-- MODAL: REGISTRAR ARMA (maestro) -->
+<div class="modal-overlay" id="modal-arma">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('modal-arma')">✕</button>
+    <div class="modal-title">REGISTRAR ARMA</div>
+    <div class="field-group"><label class="field-label">CÓDIGO QR (escanear o escribir)</label>
+      <input class="field-input" id="arma-qr" type="text" placeholder="QR-0001"></div>
+    <div class="field-row">
+      <div class="field-group"><label class="field-label">TIPO</label>
+        <select class="select-field" id="arma-tipo"><option value="CORTA">CORTA</option><option value="LARGA">LARGA</option></select></div>
+      <div class="field-group"><label class="field-label">CALIBRE</label>
+        <input class="field-input" id="arma-calibre" type="text" placeholder=".40 / 9mm"></div>
+    </div>
+    <div class="field-group"><label class="field-label">NÚMERO DE SERIE / MATRÍCULA</label>
+      <input class="field-input" id="arma-serie" type="text" placeholder=""></div>
+    <div class="field-group"><label class="field-label">ESTANTERÍA / POSICIÓN</label>
+      <input class="field-input" id="arma-estanteria" type="text" placeholder="A-01"></div>
+    <div class="mt-12"><button class="btn-primary" onclick="submitRegistrarArma()">REGISTRAR ARMA</button></div>
+  </div>
+</div>
+
+<!-- MODAL: FICHA DE ALERTA -->
+<div class="modal-overlay" id="modal-ficha">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('modal-ficha')">✕</button>
+    <div class="modal-title">FICHA DE ELEMENTO</div>
+    <div id="ficha-content"></div>
+  </div>
+</div>
+
+<!-- MODAL: RESTABLECER CONTRASEÑA -->
+<div class="modal-overlay" id="modal-reset-pass">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('modal-reset-pass')">✕</button>
+    <div class="modal-title">RESTABLECER CONTRASEÑA</div>
+    <div class="field-hint mt-8" id="reset-pass-nombre" style="margin-bottom:12px;"></div>
+    <div class="field-group">
+      <label class="field-label">NUEVA CONTRASEÑA (MÍN. 6 CARACTERES)</label>
+      <input class="field-input" id="reset-pass-input" type="password" placeholder="••••••">
+    </div>
+    <button class="btn-primary mt-12" onclick="confirmarResetPassword()">GUARDAR NUEVA CONTRASEÑA</button>
+  </div>
+</div>
+
+<!-- MODAL: AYUDA DE CÁMARA -->
+<div class="modal-overlay" id="modal-ayuda-camara">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('modal-ayuda-camara')">✕</button>
+    <div class="modal-title">SOLUCIONAR CÁMARA</div>
+
+    <div class="install-instructions" id="ayuda-camara-diagnostico"></div>
+
+    <div class="section-title mt-16">PASO 1 — Confirma que estás en Safari real</div>
+    <div class="install-instructions">
+      Si arriba de la pantalla ves <b>"◄ WhatsApp"</b> (o el nombre de otra app), sigues dentro de esa app, no en Safari real, aunque se vea igual.
+      <ol>
+        <li>Cierra esta pestaña y ve a la <b>pantalla de inicio</b> de tu iPhone.</li>
+        <li>Abre el ícono azul de la brújula: <b>Safari</b> (la app, no un enlace compartido).</li>
+        <li>Pega esta dirección en la barra de Safari:</li>
+      </ol>
+      <div class="field-input" style="margin-top:8px;word-break:break-all;font-size:11px;user-select:all;" id="ayuda-url-actual"></div>
+      <button class="btn-secondary mt-8" onclick="copiarURLActual()">📋 COPIAR ESTA DIRECCIÓN</button>
+    </div>
+
+    <div class="section-title mt-16">PASO 2 — Revisa los ajustes de tu iPhone</div>
+    <div class="install-instructions">
+      <ol>
+        <li><b>Ajustes → Tiempo en pantalla → Restricciones de contenido y privacidad → Cámara.</b> Debe estar permitida (esta opción bloquea la cámara para TODAS las apps, incluido Safari, y es común en celulares con restricciones institucionales).</li>
+        <li><b>Ajustes → Privacidad y seguridad → Cámara.</b> Verifica que "Safari" esté activado en la lista.</li>
+        <li><b>Ajustes → Safari → Cámara y micrófono</b> (o dentro de "Configuración de sitios web avanzada"). Debe decir "Preguntar" o "Permitir", no "Denegar".</li>
+      </ol>
+    </div>
+
+    <div class="section-title mt-16">MIENTRAS TANTO</div>
+    <div class="install-instructions">
+      El campo de texto para escribir/pegar el código QR manualmente <b>siempre funciona</b>, sin cámara. Puedes seguir operando con eso mientras resuelves el permiso.
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: PERMISOS E INSTALACIÓN -->
+<div class="modal-overlay" id="modal-onboarding">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('modal-onboarding')">✕</button>
+    <div class="modal-title">CONFIGURA TU ACCESO</div>
+
+    <div class="perm-step">
+      <div class="perm-icon">📍</div>
+      <div class="perm-text">
+        <div class="perm-title">UBICACIÓN</div>
+        <div class="perm-desc">Necesaria para el monitoreo obligatorio y para reportar tu posición.</div>
+        <div class="perm-status pending" id="perm-status-loc">SIN CONFIGURAR</div>
+      </div>
+    </div>
+    <div class="perm-step">
+      <div class="perm-icon">📷</div>
+      <div class="perm-text">
+        <div class="perm-title">CÁMARA</div>
+        <div class="perm-desc">Para escanear el QR del arma al activarla/desactivarla.</div>
+        <div class="perm-status pending" id="perm-status-camara">SIN CONFIGURAR</div>
+      </div>
+    </div>
+    <div class="perm-step">
+      <div class="perm-icon">🔔</div>
+      <div class="perm-text">
+        <div class="perm-title">NOTIFICACIONES</div>
+        <div class="perm-desc">Para recibir alertas del sistema en este dispositivo.</div>
+        <div class="perm-status pending" id="perm-status-notif">SIN CONFIGURAR</div>
+      </div>
+    </div>
+
+    <button class="btn-primary mt-16" onclick="solicitarTodosLosPermisos()">HABILITAR PERMISOS</button>
+
+    <div class="divider"></div>
+
+    <div class="perm-step" style="border-bottom:none;">
+      <div class="perm-icon">📲</div>
+      <div class="perm-text">
+        <div class="perm-title">INSTALAR COMO APP</div>
+        <div class="perm-desc">Agrega SICOA a la pantalla de inicio de tu celular para abrirlo como una app, sin buscar el link cada vez.</div>
+      </div>
+    </div>
+    <button class="btn-secondary" onclick="iniciarInstalacion()">📲 INSTALAR / AGREGAR A PANTALLA DE INICIO</button>
+    <div id="install-instructions-box" class="install-instructions hidden"></div>
+
+    <button class="btn-secondary mt-16" onclick="closeModal('modal-onboarding')">CONTINUAR SIN CONFIGURAR</button>
+  </div>
+</div>
+
+<button class="install-fab hidden" id="install-fab" onclick="abrirOnboarding()">📲 INSTALAR APP</button>
+
+<div id="app">
+
+  <!-- ==================== LOGIN ==================== -->
+  <div class="screen active" id="screen-login">
+    <div class="login-bg"></div><div class="login-grid"></div>
+    <div class="login-box">
+      <div class="login-emblem">
+        <div class="login-emblem-ring">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <div class="login-title">SICOA</div>
+        <div class="login-subtitle">ESCOLTAS DE SEGURIDAD — CONTROL DE ARMAMENTO</div>
+      </div>
+
+      <div id="login-elemento-form">
+        <div class="field-group"><label class="field-label">// TELÉFONO (10 DÍGITOS)</label>
+          <input class="field-input" id="login-user" type="tel" placeholder="8441234567" autocomplete="username" maxlength="10"></div>
+        <div class="field-group"><label class="field-label">// CLAVE DE ACCESO</label>
+          <input class="field-input" id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+        <button class="btn-primary mt-12" onclick="doLogin()">ACCEDER AL SISTEMA</button>
+        <div style="margin-top:12px;">
+          <button class="btn-secondary" onclick="showScreen('register')">CREAR CUENTA NUEVA</button>
+        </div>
+        <button class="btn-master" onclick="toggleMasterLogin()">⬡ ACCESO COMANDANCIA / ANÁLISIS</button>
+      </div>
+
+      <div id="login-master-form" class="hidden">
+        <div class="field-group"><label class="field-label">// USUARIO MAESTRO</label>
+          <input class="field-input" id="master-user" type="text" placeholder="usuario maestro"></div>
+        <div class="field-group"><label class="field-label">// CLAVE MAESTRA</label>
+          <input class="field-input" id="master-pass" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLoginMaster()"></div>
+        <button class="btn-primary mt-12" onclick="doLoginMaster()">ENTRAR AL PANEL MAESTRO</button>
+        <div style="margin-top:12px;"><button class="btn-secondary" onclick="toggleMasterLogin()">◄ VOLVER</button></div>
+      </div>
+
+      <div style="text-align:center;margin-top:24px;font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:2px;">
+        SICOA — v2.0 SEGURIDAD PRIVADA<br>SISTEMA DE CONTROL DE ARMAMENTO
+      </div>
+
+      <div style="margin-top:20px;padding:14px;background:#111;border:1px solid #444;border-radius:8px;">
+        <div style="text-align:center;color:#6cf;font-family:var(--mono);font-size:11px;letter-spacing:1px;margin-bottom:10px;">🔧 DIAGNÓSTICO DE PERMISOS</div>
+        <button type="button" style="width:100%;padding:10px;margin-bottom:6px;background:#2266cc;color:#fff;border:none;border-radius:6px;font-size:13px;" onclick="diagProbarCamara()">📷 PROBAR CÁMARA</button>
+        <div id="diag-res-camara" style="font-family:var(--mono);font-size:10px;color:#999;padding:6px;white-space:pre-wrap;word-break:break-word;">Sin probar.</div>
+        <button type="button" style="width:100%;padding:10px;margin:6px 0;background:#229955;color:#fff;border:none;border-radius:6px;font-size:13px;" onclick="diagProbarUbicacion()">📍 PROBAR UBICACIÓN</button>
+        <div id="diag-res-ubicacion" style="font-family:var(--mono);font-size:10px;color:#999;padding:6px;white-space:pre-wrap;word-break:break-word;">Sin probar.</div>
+        <button type="button" style="width:100%;padding:10px;margin:6px 0;background:#aa6600;color:#fff;border:none;border-radius:6px;font-size:13px;" onclick="diagProbarNotif()">🔔 PROBAR NOTIFICACIONES</button>
+        <div id="diag-res-notif" style="font-family:var(--mono);font-size:10px;color:#999;padding:6px;white-space:pre-wrap;word-break:break-word;">Sin probar.</div>
+        <div id="diag-entorno" style="font-family:var(--mono);font-size:9px;color:#666;margin-top:10px;white-space:pre-wrap;word-break:break-word;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== AUTOREGISTRO ==================== -->
+  <div class="screen" id="screen-register">
+    <div class="login-bg"></div><div class="login-grid"></div>
+    <div class="login-box">
+      <div class="login-emblem">
+        <div class="login-title" style="font-size:26px;letter-spacing:4px;">ALTA DE ELEMENTO</div>
+        <div class="login-subtitle">TU TELÉFONO SERÁ TU USUARIO DE ACCESO</div>
+      </div>
+
+      <div class="field-group">
+        <div id="reg-foto-preview" class="foto-perfil-upload" onclick="document.getElementById('input-foto-perfil').click()">
+          <div class="foto-slot-icon">📷</div>
+          <div class="foto-slot-label" style="font-size:10px;color:var(--text-dim);letter-spacing:1px;margin-top:8px;">FOTO DE PERFIL</div>
+        </div>
+      </div>
+
+      <div class="field-group"><label class="field-label">TELÉFONO (10 DÍGITOS) — SERÁ TU USUARIO</label>
+        <input class="field-input" id="reg-telefono" type="tel" placeholder="8441234567" maxlength="10">
+        <div class="field-hint">Requisito obligatorio para el alta y para iniciar sesión.</div></div>
+
+      <div class="field-row">
+        <div class="field-group"><label class="field-label">NOMBRE COMPLETO</label>
+          <input class="field-input" id="reg-nombre" type="text" placeholder="apellido nombre"></div>
+        <div class="field-group"><label class="field-label">ID DE AGENTE</label>
+          <input class="field-input" id="reg-badge" type="text" placeholder="00000"></div>
+      </div>
+      <div class="field-row">
+        <div class="field-group"><label class="field-label">RANGO</label>
+          <select class="select-field" id="reg-rango">
+            <option value="ESCOLTA">ESCOLTA</option><option value="ESCOLTA SR.">ESCOLTA SR.</option>
+            <option value="JEFE DE ESCOLTA">JEFE DE ESCOLTA</option><option value="COORDINADOR">COORDINADOR</option>
+            <option value="SUPERVISOR">SUPERVISOR</option><option value="SUBDIR. OPERATIVO">SUBDIR. OPERATIVO</option>
+            <option value="DIRECTOR OPERATIVO">DIRECTOR OPERATIVO</option>
+          </select></div>
+        <div class="field-group"><label class="field-label">SERVICIO / AGRUPAMIENTO</label>
+          <input class="field-input" id="reg-unidad" type="text" placeholder="ej. ESCOLTA VIP A"></div>
+      </div>
+      <div class="field-row">
+        <div class="field-group"><label class="field-label">TIPO ARMAMENTO ASIGNADO</label>
+          <select class="select-field" id="reg-tipo-arm"><option value="CORTA">ARMA CORTA</option><option value="AMBAS">CORTA + LARGA</option></select></div>
+        <div class="field-group"><label class="field-label">NÚM. DE PORTE (PERMISO)</label>
+          <input class="field-input" id="reg-porte" type="text" placeholder="opcional"></div>
+      </div>
+      <div class="field-group"><label class="field-label">CONTACTO DE EMERGENCIA</label>
+        <input class="field-input" id="reg-contacto" type="text" placeholder="nombre y teléfono"></div>
+
+      <div class="divider"></div>
+      <div class="field-group"><label class="field-label">CONTRASEÑA (MÍN. 6 CARACTERES)</label>
+        <input class="field-input" id="reg-password" type="password" placeholder="••••••"></div>
+      <div class="field-group"><label class="field-label">CONFIRMAR CONTRASEÑA</label>
+        <input class="field-input" id="reg-password2" type="password" placeholder="••••••"></div>
+
+      <button class="btn-primary mt-12" onclick="submitRegistro()">ENVIAR REGISTRO</button>
+      <div class="mt-12"><button class="btn-secondary" onclick="showScreen('login')">◄ YA TENGO CUENTA</button></div>
+      <div class="field-hint mt-12" style="text-align:center;">Tu cuenta quedará PENDIENTE hasta que comandancia la apruebe.</div>
+    </div>
+  </div>
+
+  <!-- ==================== PRINCIPAL (ELEMENTO) ==================== -->
+  <div class="screen" id="screen-main">
+    <div class="topbar">
+      <div class="topbar-logo">
+        <div class="logo-icon">⬡</div>
+        <div><div class="logo-text">SICOA</div><div class="logo-sub">CONTROL DE ARMAMENTO</div></div>
+      </div>
+      <div class="topbar-right">
+        <div class="status-dot" id="status-dot"></div>
+        <div class="user-chip">
+          <div class="user-chip-placeholder" id="user-avatar-sm">
+            <img id="user-avatar-img" src="" style="display:none;width:100%;height:100%;object-fit:cover;">
+            <span id="user-avatar-initials">--</span>
+          </div>
+          <span class="user-name" id="user-name-top">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="content" id="tab-dashboard">
+      <div class="dash-header">
+        <div class="dash-greeting" id="dash-greeting">BUENOS DÍAS, OPERADOR</div>
+        <div class="dash-name" id="dash-nombre">—</div>
+        <div class="dash-badge" id="dash-badge">BADGE: —</div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">// ESTADO ARMA</div><div class="stat-value" id="stat-arma">—</div><div class="stat-sub" id="stat-arma-tipo">—</div></div>
+        <div class="stat-card"><div class="stat-label">// TURNO ACTUAL</div><div class="stat-value" id="stat-turno">—</div><div class="stat-sub" id="stat-fecha">—</div></div>
+      </div>
+
+      <div class="arma-card" id="arma-status-card">
+        <div class="arma-card-header">
+          <div class="arma-tipo" id="arma-tipo-text">SIN ARMA ASIGNADA</div>
+          <div class="arma-badge off" id="arma-status-badge">● INACTIVA</div>
+        </div>
+        <div class="arma-info-row">
+          <div class="arma-info-item"><div class="arma-info-label">QR CODE</div><div class="arma-info-val" id="arma-qr-display">—</div></div>
+          <div class="arma-info-item"><div class="arma-info-label">ÚLTIMO EVENTO</div><div class="arma-info-val" id="arma-last-event">—</div></div>
+        </div>
+      </div>
+
+      <div id="monitoreo-dash-card" class="hidden">
+        <div class="section-title">MONITOREO OBLIGATORIO</div>
+        <div class="monitoreo-card">
+          <div class="monitoreo-label">PRÓXIMO CHECK-IN EN</div>
+          <div class="monitoreo-timer" id="mon-timer-dash">60:00</div>
+          <div class="coord-display" id="coord-dash">LAT: — | LNG: —</div>
+        </div>
+        <button class="btn-check-in" id="btn-checkin-dash" onclick="doCheckin()">▲ REPORTAR POSICIÓN</button>
+      </div>
+
+      <div class="mt-16">
+        <div class="section-title">OPCIONES RÁPIDAS</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <button class="btn-secondary" onclick="switchTab('scan')"><span style="font-size:20px;display:block;margin-bottom:4px;">⬡</span>ESCANEAR QR</button>
+          <button class="btn-secondary" onclick="switchTab('hist')"><span style="font-size:20px;display:block;margin-bottom:4px;">≡</span>HISTORIAL</button>
+          <button class="btn-secondary" onclick="doLogout()"><span style="font-size:20px;display:block;margin-bottom:4px;">⬡</span>CERRAR SESIÓN</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="content hidden" id="tab-scan">
+      <div class="section-title">LECTOR QR</div>
+      <div class="scanner-wrap" id="scanner-wrap">
+        <video id="qr-video" autoplay playsinline muted></video>
+        <div class="scanner-overlay"><div class="scanner-corner sc-tl"></div><div class="scanner-corner sc-tr"></div><div class="scanner-corner sc-bl"></div><div class="scanner-corner sc-br"></div><div class="scanner-line"></div></div>
+        <div id="cam-status-box" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#0a0a0a;">
+          <div style="font-size:32px;opacity:0.3">⬡</div>
+          <div id="cam-status-text" style="font-family:var(--mono);font-size:11px;color:var(--text-dim);letter-spacing:2px;text-align:center;padding:0 20px;">INICIANDO CÁMARA...</div>
+          <button id="btn-retry-cam" onclick="retryCam()" style="display:none;background:var(--red);border:none;color:#fff;padding:8px 20px;font-family:var(--mono);font-size:11px;letter-spacing:2px;cursor:pointer;margin-top:8px;">↺ REINTENTAR</button>
+        </div>
+      </div>
+      <div class="scanner-label" id="scanner-label-text">INICIANDO CÁMARA...</div>
+      <div style="text-align:center;margin-bottom:12px;"><button class="link-btn" onclick="abrirAyudaCamara()">❓ La cámara no funciona — ver solución</button></div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input class="field-input" id="qr-manual-input" type="text" placeholder="O escribe / pega el código QR aquí" style="flex:1;font-size:13px;" onkeydown="if(event.key==='Enter')applyManualQR()">
+        <button onclick="applyManualQR()" style="background:var(--bg3);border:1px solid var(--border);color:var(--red);padding:0 14px;font-family:var(--mono);font-size:12px;letter-spacing:1px;cursor:pointer;white-space:nowrap;">APLICAR</button>
+      </div>
+      <div class="qr-result-box" id="qr-result-box">
+        <div class="qr-result-label">// QR DETECTADO</div><div class="qr-result-val" id="qr-result-val">—</div>
+        <div style="margin-top:6px;"><button onclick="clearQR()" style="background:transparent;border:none;color:var(--text-dim);font-family:var(--mono);font-size:10px;cursor:pointer;letter-spacing:1px;">✕ LIMPIAR</button></div>
+      </div>
+      <div class="arm-actions" id="arm-action-btns">
+        <button class="btn-arm-on" id="btn-activar" onclick="accionArma('ACTIVAR')" disabled><span>▲</span><span>ACTIVAR</span></button>
+        <button class="btn-arm-off" id="btn-desactivar" onclick="prepDesactivar()" disabled><span>▼</span><span>DESACTIVAR</span></button>
+      </div>
+      <div class="foto-section hidden" id="foto-section-apagado">
+        <div class="foto-title">REGISTRO FOTOGRÁFICO</div>
+        <div class="foto-grid" id="foto-grid-dynamic"></div>
+        <button class="btn-primary mt-12" onclick="accionArma('DESACTIVAR')">CONFIRMAR DESACTIVACIÓN</button>
+      </div>
+    </div>
+
+    <div class="content hidden" id="tab-mon">
+      <div class="section-title">MONITOREO DE POSICIÓN</div>
+      <div class="monitoreo-card">
+        <div class="monitoreo-label">TIEMPO PARA PRÓXIMO REPORTE</div>
+        <div class="monitoreo-timer" id="mon-timer">60:00</div>
+        <div class="monitoreo-label" id="mon-arma-status">ARMA: INACTIVA</div>
+        <div class="coord-display" id="coord-display">UBICACIÓN NO DISPONIBLE</div>
+      </div>
+      <button class="btn-check-in" id="btn-checkin" onclick="doCheckin()">▲ REPORTAR POSICIÓN AHORA</button>
+      <div style="margin-top:16px;"><div class="section-title">HISTORIAL HOY</div><div id="mon-hist-list"><div class="empty-state">— SIN REPORTES HOY —</div></div></div>
+    </div>
+
+    <div class="content hidden" id="tab-hist">
+      <div class="section-title">REGISTROS DE USO</div>
+      <div id="hist-list"><div class="empty-state">CARGANDO...</div></div>
+    </div>
+
+    <nav class="nav-bottom">
+      <button class="nav-btn active" id="nav-dash" onclick="switchTab('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>INICIO</button>
+      <button class="nav-btn" id="nav-scan" onclick="switchTab('scan')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/></svg>ESCANEAR</button>
+      <button class="nav-btn hidden" id="nav-mon" onclick="switchTab('mon')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>MONITOREO</button>
+      <button class="nav-btn" id="nav-hist" onclick="switchTab('hist')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>HISTORIAL</button>
+    </nav>
+  </div>
+
+  <!-- ==================== PANEL MAESTRO ==================== -->
+  <div class="screen" id="screen-master">
+    <div class="topbar">
+      <div class="topbar-logo">
+        <div class="logo-icon" style="border-color:var(--blue);color:var(--blue);">⬡</div>
+        <div><div class="logo-text">SICOA</div><div class="logo-sub" style="color:var(--blue);">PANEL DE ANÁLISIS Y COMANDO</div></div>
+      </div>
+      <div class="topbar-right">
+        <div class="status-dot" id="master-status-dot"></div>
+        <div class="user-chip"><span class="user-name">COMANDANCIA</span></div>
+      </div>
+    </div>
+
+    <div class="content" id="tab-master-panel">
+      <div id="notif-banner" class="notif-banner hidden">
+        <span>Activa las notificaciones para recibir alertas de personal sin reportar posición.</span>
+        <button onclick="solicitarPermisoNotificaciones()">ACTIVAR</button>
+      </div>
+
+      <div class="section-title">ALERTAS ACTIVAS <span id="alert-count-label"></span></div>
+      <div id="alertas-list"><div class="empty-state">— SIN ALERTAS —</div></div>
+
+      <div class="section-title mt-16">MAPA OPERATIVO — ÚLTIMAS POSICIONES</div>
+      <div id="map-container"></div>
+      <div class="field-group">
+        <label class="field-label">VER TRAZO DE:</label>
+        <select class="select-field select-elemento" id="select-trazo" onchange="cargarTrazoSeleccionado()">
+          <option value="">— seleccionar elemento —</option>
+        </select>
+      </div>
+
+      <div class="section-title mt-16">GENERAR QR DE IDENTIFICACIÓN (PERSONA)</div>
+      <div class="field-hint" style="margin-bottom:10px;">Ficha informativa de la persona — NO es el QR que se escanea al activar el arma.</div>
+      <div class="qr-gen-box">
+        <select class="select-field select-elemento" id="select-qr" onchange="cargarPreviewQR()">
+          <option value="">— seleccionar elemento —</option>
+        </select>
+        <div id="qr-canvas-holder"></div>
+        <div id="qr-ficha-print" class="ficha-print hidden"></div>
+        <button class="btn-secondary mt-12" id="btn-print-qr" style="display:none;" onclick="prepararEImprimir('qr-canvas-holder','qr-ficha-print','SICOA — Identificación de Elemento')">🖨 IMPRIMIR TARJETA</button>
+      </div>
+
+      <div class="section-title mt-16">GENERAR QR DE ARMA (PARA IMPRIMIR Y PEGAR EN EL ARMA)</div>
+      <div class="field-hint" style="margin-bottom:10px;">Este es el QR que el elemento escanea al tomar/dejar el arma. Imprímelo y pégalo en el arma o su funda.</div>
+      <div class="qr-gen-box">
+        <select class="select-field select-elemento" id="select-qr-arma" onchange="cargarPreviewQRArma()">
+          <option value="">— seleccionar arma —</option>
+        </select>
+        <div id="qr-arma-canvas-holder"></div>
+        <div id="qr-arma-ficha-print" class="ficha-print hidden"></div>
+        <button class="btn-secondary mt-12" id="btn-print-qr-arma" style="display:none;" onclick="prepararEImprimir('qr-arma-canvas-holder','qr-arma-ficha-print','SICOA — Etiqueta de Arma')">🖨 IMPRIMIR ETIQUETA DEL ARMA</button>
+      </div>
+
+      <div class="section-title mt-16">ALTA DE ARMAMENTO</div>
+      <button class="btn-secondary" onclick="openModal('modal-arma')">+ REGISTRAR NUEVA ARMA (QR)</button>
+
+      <div class="section-title mt-16">SOLICITUDES DE ALTA PENDIENTES</div>
+      <div id="pendientes-list"><div class="empty-state">CARGANDO...</div></div>
+
+      <div class="section-title mt-16">TODOS LOS ELEMENTOS</div>
+      <div id="elementos-master-list"><div class="empty-state">CARGANDO...</div></div>
+
+      <div class="mt-16"><button class="btn-secondary" onclick="doLogoutMaster()">CERRAR SESIÓN MAESTRA</button></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// ESTADO GLOBAL
+// ============================================================
+const STATE = {
+  usuario: null, master: false,
+  armaActiva: false, qrActual: null,
+  fotosApagado: { corta: null, larga: null },
+  fotoPerfilRegistroBase64: null,
+  monitoreoInterval: null, monitoreoSecsLeft: 3600,
+  monitoreoHist: [], camStream: null, qrInterval: null,
+  masterPollInterval: null, alertasConocidas: {}, leafletMap: null, mapMarkers: {}, trazoLayer: null,
+  qrObj: null
+};
+// ============================================================
+// URL DE TU API (Apps Script)
+// Pega aquí la URL /exec de tu implementación de Apps Script.
+// Debe terminar en /exec — es la misma que ya usabas para abrir el sistema.
+// ============================================================
+const API_URL = 'https://script.google.com/macros/s/AKfycbw3Zq7xdx1veDTEAxZZ1s4igB0-FMwj87_5A7RdcKwBRfo6uGUsR0LRrNyyBULXP3M9IA/exec';
+
+const IS_GAS = false; // este archivo ya NO vive dentro de Apps Script — siempre usa fetch()
+
+function callBackend(action, params) {
+  if (API_URL.indexOf('PEGA_AQUI') !== -1) {
+    console.warn('[SICOA] Configura API_URL en Index.html con tu URL real de Apps Script.');
+    return Promise.resolve(getDemoResponse(action, params));
+  }
+  return fetch(API_URL, {
+    method: 'POST',
+    // Content-Type "text/plain" a propósito: evita que el navegador dispare
+    // una solicitud preflight OPTIONS (que Apps Script no responde), lo que
+    // rompería la llamada por CORS. Apps Script igual lee el JSON del body.
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: action, params: params || {} })
+  })
+    .then(res => res.json())
+    .catch(err => ({ success: false, error: 'Error de red: ' + err.message }));
+}
+function getDemoResponse(action) {
+  const demos = {
+    login: { success: true, elemento: { id:'EL001', nombre:'DEMO AGENTE', badge:'12345', rango:'ESCOLTA', unidad:'VIP A', foto:'', tipoArmamento:'AMBAS', monitoreoActivo:true } },
+    loginMaster: { success: true, master: { usuario:'demo.master' } },
+    getUltimasUbicaciones: { success: true, ubicaciones: [] },
+    checkAlertas: { success: true, alertasNuevas: [], alertasActivas: [] },
+    getElementosMaestro: { success: true, elementos: [] }
+  };
+  return demos[action] || { success: false, error: 'No disponible en demo' };
+}
+
+// ============================================================
+// NAVEGACIÓN
+// ============================================================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+}
+let currentTab = 'dashboard';
+function switchTab(tab) {
+  ['dashboard','scan','mon','hist'].forEach(t => {
+    const el = document.getElementById('tab-' + t); if (el) el.classList.toggle('hidden', t !== tab);
+    const nav = document.getElementById('nav-' + t); if (nav) nav.classList.toggle('active', t === tab);
+  });
+  currentTab = tab;
+  if (tab === 'scan') {
+    if (esNavegadorIntegrado()) toast('Estás en un navegador integrado (WhatsApp/Instagram) — la cámara puede no funcionar. Usa "Abrir en Safari/Chrome" o el campo de texto.', 'warning');
+    startCamera();
+  } else { stopCamera(); }
+  if (tab === 'hist') loadHistorial();
+}
+function toast(msg, type='info') {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div'); t.className = 'toast ' + type; t.textContent = msg;
+  c.appendChild(t); setTimeout(() => t.remove(), 4000);
+}
+function showLoading(msg='PROCESANDO...') { document.getElementById('loading-text').textContent = msg; document.getElementById('loading-overlay').classList.add('show'); }
+function hideLoading() { document.getElementById('loading-overlay').classList.remove('show'); }
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+function toggleMasterLogin() {
+  document.getElementById('login-elemento-form').classList.toggle('hidden');
+  document.getElementById('login-master-form').classList.toggle('hidden');
+}
+
+// ============================================================
+// AUTOREGISTRO
+// ============================================================
+document.getElementById('input-foto-perfil').addEventListener('change', function(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    STATE.fotoPerfilRegistroBase64 = ev.target.result;
+    const div = document.getElementById('reg-foto-preview');
+    let img = div.querySelector('img'); if (!img) { img = document.createElement('img'); div.appendChild(img); }
+    img.src = ev.target.result;
+    toast('Foto de perfil lista', 'success');
+  };
+  reader.readAsDataURL(file);
+});
+
+async function submitRegistro() {
+  const telefono = document.getElementById('reg-telefono').value.trim();
+  const nombre = document.getElementById('reg-nombre').value.trim();
+  const badge = document.getElementById('reg-badge').value.trim();
+  const rango = document.getElementById('reg-rango').value;
+  const unidad = document.getElementById('reg-unidad').value.trim();
+  const tipoArmamento = document.getElementById('reg-tipo-arm').value;
+  const porte = document.getElementById('reg-porte').value.trim();
+  const contactoEmergencia = document.getElementById('reg-contacto').value.trim();
+  const password = document.getElementById('reg-password').value;
+  const password2 = document.getElementById('reg-password2').value;
+
+  if (!/^\d{10}$/.test(telefono)) { toast('El teléfono debe tener exactamente 10 dígitos', 'error'); return; }
+  if (!nombre || !badge) { toast('Nombre e ID de agente son requeridos', 'error'); return; }
+  if (password.length < 6) { toast('La contraseña debe tener al menos 6 caracteres', 'error'); return; }
+  if (password !== password2) { toast('Las contraseñas no coinciden', 'error'); return; }
+
+  showLoading('ENVIANDO REGISTRO...');
+  try {
+    const res = await callBackend('registrarElementoPublico', {
+      datos: { telefono, nombre, badge, rango, unidad, tipoArmamento, porte, contactoEmergencia, password },
+      fotoBase64: STATE.fotoPerfilRegistroBase64
+    });
+    if (res.success) {
+      toast(res.message, 'success');
+      showScreen('login');
+      document.getElementById('login-user').value = telefono;
+    } else {
+      toast(res.error || 'Error al registrar', 'error');
+    }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+  finally { hideLoading(); }
+}
+
+// ============================================================
+// LOGIN — ELEMENTO
+// ============================================================
+async function doLogin() {
+  const telefono = document.getElementById('login-user').value.trim();
+  const password = document.getElementById('login-pass').value;
+  if (!telefono) { toast('Ingresa tu teléfono', 'error'); return; }
+
+  // CRÍTICO: esto tiene que ir AQUÍ, en el mismo clic, antes de cualquier
+  // "await". Los navegadores solo muestran el diálogo real de permiso de
+  // cámara/notificaciones si la petición ocurre dentro de la activación del
+  // usuario (el clic). Si se pide después de esperar la respuesta del
+  // servidor (login), ya no cuenta como parte del clic y el navegador la
+  // ignora en silencio — por eso solo ubicación estaba funcionando.
+  dispararPermisosNativos();
+
+  showLoading('AUTENTICANDO...');
+  try {
+    const res = await callBackend('login', { telefono, password });
+    if (res.success) {
+      STATE.usuario = res.elemento; STATE.master = false;
+      initDashboard(); showScreen('main');
+      toast('ACCESO CONCEDIDO — ' + res.elemento.rango, 'success');
+      if (!appEstaInstalada()) setTimeout(abrirOnboarding, 800);
+    } else {
+      toast(res.error || 'Acceso denegado', 'error');
+      detenerPrewarmCamara(); // login falló: no dejar la cámara encendida de gratis
+    }
+  } catch(e) { toast('Error de conexión: ' + e.message, 'error'); detenerPrewarmCamara(); }
+  finally { hideLoading(); }
+}
+function doLogout() {
+  stopCamera(); stopMonitoreo(); detenerPrewarmCamara();
+  STATE.usuario = null; STATE.armaActiva = false; STATE.qrActual = null;
+  showScreen('login'); document.getElementById('login-pass').value = '';
+}
+
+// ============================================================
+// LOGIN — MAESTRO
+// ============================================================
+async function doLoginMaster() {
+  const usuario = document.getElementById('master-user').value.trim();
+  const password = document.getElementById('master-pass').value;
+  if (!usuario || !password) { toast('Completa usuario y contraseña maestra', 'error'); return; }
+
+  // Igual que en el login de elemento: pedir los permisos DENTRO del clic,
+  // antes de esperar la respuesta del servidor.
+  if (navigator.geolocation) navigator.geolocation.getCurrentPosition(() => {}, () => {});
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+
+  showLoading('VERIFICANDO CREDENCIALES...');
+  try {
+    const res = await callBackend('loginMaster', { usuario, password });
+    if (res.success) {
+      STATE.master = true;
+      showScreen('master');
+      initMasterDashboard();
+      toast('ACCESO MAESTRO CONCEDIDO', 'success');
+      if (!appEstaInstalada()) setTimeout(abrirOnboarding, 800);
+    } else { toast(res.error || 'Acceso denegado', 'error'); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+  finally { hideLoading(); }
+}
+function doLogoutMaster() {
+  stopMasterPolling();
+  STATE.master = false;
+  showScreen('login');
+  document.getElementById('master-pass').value = '';
+}
+
+// ============================================================
+// DASHBOARD ELEMENTO
+// ============================================================
+function initDashboard() {
+  const u = STATE.usuario;
+  const hour = new Date().getHours();
+  let greeting = 'BUENAS TARDES';
+  if (hour < 12) greeting = 'BUENOS DÍAS'; else if (hour >= 21) greeting = 'BUENAS NOCHES';
+
+  document.getElementById('dash-greeting').textContent = greeting + ', AGENTE';
+  document.getElementById('dash-nombre').textContent = u.nombre;
+  document.getElementById('dash-badge').textContent = 'ID: ' + u.badge + ' | ' + u.rango + ' | ' + u.unidad;
+  document.getElementById('user-name-top').textContent = u.badge;
+
+  const avatarImg = document.getElementById('user-avatar-img');
+  const avatarInitials = document.getElementById('user-avatar-initials');
+  avatarInitials.textContent = u.badge.toString().slice(-2);
+  if (u.foto) {
+    avatarImg.onload = () => { avatarImg.style.display = 'block'; avatarInitials.style.display = 'none'; };
+    avatarImg.onerror = () => { avatarImg.style.display = 'none'; avatarInitials.style.display = 'flex'; };
+    avatarImg.src = u.foto;
+  } else { avatarImg.style.display = 'none'; avatarInitials.style.display = 'flex'; }
+
+  document.getElementById('stat-turno').textContent = getTurno();
+  document.getElementById('stat-fecha').textContent = new Date().toLocaleDateString('es-MX', {day:'2-digit',month:'short'});
+  document.getElementById('stat-arma').textContent = 'INACTIVA';
+  document.getElementById('stat-arma-tipo').textContent = 'TIPO: ' + u.tipoArmamento;
+  document.getElementById('arma-tipo-text').textContent = 'TIPO: ' + u.tipoArmamento;
+
+  if (u.monitoreoActivo) {
+    document.getElementById('monitoreo-dash-card').classList.remove('hidden');
+    document.getElementById('nav-mon').classList.remove('hidden');
+    startMonitoreo();
+  }
+}
+function getTurno() {
+  const h = new Date().getHours();
+  if (h >= 6 && h < 14) return 'MATUTINO'; if (h >= 14 && h < 22) return 'VESPERTINO'; return 'NOCTURNO';
+}
+
+// ============================================================
+// CÁMARA QR
+// ============================================================
+function setCamStatus(text, showRetry=false) {
+  const box = document.getElementById('cam-status-box'), txtEl = document.getElementById('cam-status-text'),
+        retryBtn = document.getElementById('btn-retry-cam'), label = document.getElementById('scanner-label-text');
+  if (txtEl) txtEl.textContent = text; if (label) label.textContent = text;
+  if (retryBtn) retryBtn.style.display = showRetry ? 'block' : 'none';
+  if (box) box.style.display = 'flex';
+}
+function hideCamStatus() {
+  const box = document.getElementById('cam-status-box'), label = document.getElementById('scanner-label-text');
+  if (box) box.style.display = 'none'; if (label) label.textContent = 'APUNTE LA CÁMARA AL CÓDIGO QR';
+}
+function retryCam() { STATE.camStream = null; startCamera(); }
+
+function abrirAyudaCamara() {
+  const diag = document.getElementById('ayuda-camara-diagnostico');
+  const partes = [];
+  partes.push('<b>Diagnóstico automático:</b>');
+  partes.push('• Navegador detectado: ' + (esNavegadorIntegrado() ? 'navegador integrado de otra app (WhatsApp/Instagram/etc.) — casi seguro es la causa' : 'no se detectó firma de navegador integrado conocida'));
+  partes.push('• Cámara/getUserMedia disponible en este navegador: ' + (navigator.mediaDevices && navigator.mediaDevices.getUserMedia ? 'SÍ' : 'NO'));
+  partes.push('• Instalado como app (pantalla de inicio): ' + (appEstaInstalada() ? 'SÍ' : 'NO'));
+  diag.innerHTML = partes.join('<br>');
+  document.getElementById('ayuda-url-actual').textContent = window.location.href;
+  openModal('modal-ayuda-camara');
+}
+function copiarURLActual() {
+  const url = window.location.href;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => toast('Dirección copiada', 'success')).catch(() => toast('No se pudo copiar automáticamente — selecciónala y copia manualmente', 'warning'));
+  } else {
+    toast('Selecciona el texto de la dirección y cópialo manualmente', 'warning');
+  }
+}
+
+// ============================================================
+// DIAGNÓSTICO AISLADO DE PERMISOS (pantalla de login, sin login)
+// Completamente independiente del resto del código, a propósito.
+// ============================================================
+document.getElementById('diag-entorno').textContent =
+  'UA: ' + navigator.userAgent + '\nHTTPS seguro: ' + window.isSecureContext +
+  '\nmediaDevices: ' + !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) +
+  '\nNotification: ' + ('Notification' in window);
+
+function diagProbarCamara() {
+  const el = document.getElementById('diag-res-camara');
+  el.textContent = 'Solicitando...'; el.style.color = '#999';
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    el.textContent = 'getUserMedia NO EXISTE en este navegador.'; el.style.color = '#f77'; return;
+  }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(stream => {
+    el.textContent = '✅ ÉXITO: cámara concedida.'; el.style.color = '#7f7';
+    stream.getTracks().forEach(t => t.stop());
+  }).catch(err => {
+    el.textContent = '❌ ' + err.name + ': ' + (err.message || 'sin mensaje'); el.style.color = '#f77';
+  });
+}
+function diagProbarUbicacion() {
+  const el = document.getElementById('diag-res-ubicacion');
+  el.textContent = 'Solicitando...'; el.style.color = '#999';
+  if (!navigator.geolocation) { el.textContent = 'geolocation NO EXISTE.'; el.style.color = '#f77'; return; }
+  navigator.geolocation.getCurrentPosition(
+    pos => { el.textContent = '✅ ÉXITO: ' + pos.coords.latitude.toFixed(4) + ', ' + pos.coords.longitude.toFixed(4); el.style.color = '#7f7'; },
+    err => { el.textContent = '❌ código ' + err.code + ': ' + err.message; el.style.color = '#f77'; },
+    { timeout: 8000 }
+  );
+}
+function diagProbarNotif() {
+  const el = document.getElementById('diag-res-notif');
+  el.textContent = 'Solicitando...'; el.style.color = '#999';
+  if (!('Notification' in window)) { el.textContent = 'Notification NO EXISTE en este navegador.'; el.style.color = '#f77'; return; }
+  Notification.requestPermission().then(perm => {
+    el.textContent = 'Resultado: ' + perm; el.style.color = perm === 'granted' ? '#7f7' : '#f77';
+  }).catch(err => { el.textContent = '❌ ' + err.message; el.style.color = '#f77'; });
+}
+
+function esNavegadorIntegrado() {
+  const ua = navigator.userAgent || '';
+  // Firmas típicas de navegadores integrados (in-app browsers) que suelen
+  // bloquear getUserMedia (cámara) sin importar el permiso que el usuario acepte.
+  return /FBAN|FBAV|Instagram|Line\/|MicroMessenger|TikTok|WhatsApp|GSA\/|SnapChat/i.test(ua);
+}
+
+function startCamera() {
+  if (STATE.camStream) return;
+
+  // Si ya tenemos un stream precalentado (pedido en el mismo clic del login),
+  // lo reutilizamos directo — así no se vuelve a pedir el permiso.
+  if (STATE.camStreamPrewarm && STATE.camStreamPrewarm.active) {
+    STATE.camStream = STATE.camStreamPrewarm;
+    STATE.camStreamPrewarm = null;
+    const video = document.getElementById('qr-video');
+    video.srcObject = STATE.camStream;
+    video.play().then(() => { hideCamStatus(); startQRScan(); }).catch(() => { hideCamStatus(); startQRScan(); });
+    return;
+  }
+
+  setCamStatus('SOLICITANDO ACCESO A CÁMARA...');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (esNavegadorIntegrado()) {
+      setCamStatus('ESTÁS EN UN NAVEGADOR INTEGRADO (WhatsApp/Instagram/etc).\nToca ⋮ o el ícono de compartir y elige "Abrir en Safari/Chrome".\nMientras tanto, usa el campo de texto para el QR.', false);
+    } else {
+      setCamStatus('CÁMARA NO DISPONIBLE.\nUSA EL CAMPO DE TEXTO PARA INGRESAR EL QR.', true);
+    }
+    return;
+  }
+  const constraints = [
+    { video: { facingMode: 'environment' } },
+    { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+    { video: { facingMode: 'user' } }, { video: true }
+  ];
+  tryConstraints(constraints, 0);
+}
+function tryConstraints(constraints, idx) {
+  if (idx >= constraints.length) {
+    if (esNavegadorIntegrado()) {
+      setCamStatus('ESTÁS EN UN NAVEGADOR INTEGRADO (WhatsApp/Instagram/etc), que bloquea la cámara.\nToca ⋮ o el ícono de compartir y elige "Abrir en Safari/Chrome".\nMientras tanto, usa el campo de texto para el QR.', false);
+    } else {
+      setCamStatus('NO SE PUDO ACTIVAR LA CÁMARA.\nINGRESA EL QR MANUALMENTE.', true);
+    }
+    return;
+  }
+  const video = document.getElementById('qr-video');
+  navigator.mediaDevices.getUserMedia(constraints[idx]).then(stream => {
+    STATE.camStream = stream; video.srcObject = stream;
+    video.play().then(() => { hideCamStatus(); startQRScan(); }).catch(() => { hideCamStatus(); startQRScan(); });
+  }).catch(err => {
+    const errName = (err.name || '').toString();
+    if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError' || errName === 'SecurityError') {
+      if (esNavegadorIntegrado()) {
+        setCamStatus('ESTÁS EN UN NAVEGADOR INTEGRADO (WhatsApp/Instagram/etc), que bloquea la cámara aunque aceptes el permiso.\nToca ⋮ o el ícono de compartir arriba y elige "Abrir en Safari/Chrome".\nMientras tanto, usa el campo de texto para el QR.', false);
+      } else {
+        setCamStatus('TOCA ↺ REINTENTAR y acepta el permiso de cámara.', true);
+      }
+    } else if (errName === 'NotFoundError' || errName === 'DevicesNotFoundError') {
+      setCamStatus('CÁMARA NO ENCONTRADA. Ingresa el QR manualmente.', true);
+    } else { tryConstraints(constraints, idx + 1); }
+  });
+}
+function stopCamera() {
+  if (STATE.qrInterval) { clearInterval(STATE.qrInterval); STATE.qrInterval = null; }
+  if (STATE.camStream) { STATE.camStream.getTracks().forEach(t => t.stop()); STATE.camStream = null; }
+  const box = document.getElementById('cam-status-box'); if (box) box.style.display = 'flex';
+  const txt = document.getElementById('cam-status-text'); if (txt) txt.textContent = 'CÁMARA DETENIDA';
+}
+function startQRScan() {
+  if (typeof jsQR === 'undefined') {
+    setCamStatus('LECTOR QR NO DISPONIBLE (red bloqueó jsdelivr.net).\nUSA EL CAMPO DE TEXTO PARA INGRESAR EL QR.', false);
+    return;
+  }
+  const video = document.getElementById('qr-video');
+  const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+  STATE.qrInterval = setInterval(() => {
+    if (!video || video.readyState < video.HAVE_ENOUGH_DATA || !video.videoWidth) return;
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    try {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data) onQRDetected(code.data);
+    } catch(e) {}
+  }, 350);
+}
+function applyManualQR() {
+  const val = document.getElementById('qr-manual-input').value.trim();
+  if (!val) { toast('Escribe el código QR', 'warning'); return; }
+  onQRDetected(val); document.getElementById('qr-manual-input').value = '';
+}
+function clearQR() {
+  STATE.qrActual = null; document.getElementById('qr-result-box').classList.remove('show');
+  document.getElementById('btn-activar').disabled = true; document.getElementById('btn-desactivar').disabled = true;
+  document.getElementById('foto-section-apagado').classList.add('hidden');
+}
+function onQRDetected(data) {
+  if (STATE.qrActual === data) return;
+  STATE.qrActual = data;
+  document.getElementById('qr-result-box').classList.add('show');
+  document.getElementById('qr-result-val').textContent = data;
+  document.getElementById('btn-activar').disabled = false;
+  document.getElementById('btn-desactivar').disabled = false;
+  if (navigator.vibrate) navigator.vibrate([100,50,100]);
+  toast('QR DETECTADO: ' + data, 'success');
+}
+
+// ============================================================
+// ACCIONES DE ARMA
+// ============================================================
+function accionArma(accion) {
+  if (!STATE.qrActual) { toast('Escanea el QR del arma primero', 'error'); return; }
+  const tipoArm = STATE.usuario.tipoArmamento;
+  if (accion === 'DESACTIVAR') {
+    if (!STATE.fotosApagado.corta) { toast('Toma la foto del arma corta', 'warning'); return; }
+    if (tipoArm === 'AMBAS' && !STATE.fotosApagado.larga) { toast('Toma la foto del arma larga', 'warning'); return; }
+  }
+  showLoading(accion === 'ACTIVAR' ? 'ACTIVANDO ARMA...' : 'DESACTIVANDO ARMA...');
+  getCurrentCoords().then(coords => callBackend('registrarUso', {
+    accion, qrCode: STATE.qrActual, idElemento: STATE.usuario.id, nombreElemento: STATE.usuario.nombre,
+    fotos: accion === 'DESACTIVAR' ? STATE.fotosApagado : null, coordenadas: coords
+  })).then(res => {
+    hideLoading();
+    if (res.success) {
+      toast(res.message, accion === 'ACTIVAR' ? 'success' : 'warning');
+      STATE.armaActiva = accion === 'ACTIVAR';
+      updateArmaStatus(accion, res.armaInfo);
+      if (accion === 'DESACTIVAR') {
+        STATE.fotosApagado = { corta: null, larga: null };
+        document.getElementById('foto-section-apagado').classList.add('hidden');
+        STATE.qrActual = null;
+        document.getElementById('qr-result-box').classList.remove('show');
+        document.getElementById('btn-activar').disabled = true;
+        document.getElementById('btn-desactivar').disabled = true;
+      }
+    } else { toast(res.error || 'Error al registrar', 'error'); }
+  }).catch(e => { hideLoading(); toast('Error: ' + e.message, 'error'); });
+}
+function prepDesactivar() {
+  if (!STATE.qrActual) { toast('Escanea el QR del arma primero', 'error'); return; }
+  const tipoArm = STATE.usuario.tipoArmamento;
+  const fotoSection = document.getElementById('foto-section-apagado'), grid = document.getElementById('foto-grid-dynamic');
+  let html = `<div class="foto-slot" id="slot-corta" onclick="triggerFoto('corta')"><span class="foto-slot-icon">📷</span><span class="foto-slot-label">ARMA CORTA</span><button class="foto-del" onclick="clearFoto(event,'corta')">✕</button></div>`;
+  if (tipoArm === 'AMBAS') html += `<div class="foto-slot" id="slot-larga" onclick="triggerFoto('larga')"><span class="foto-slot-icon">📷</span><span class="foto-slot-label">ARMA LARGA</span><button class="foto-del" onclick="clearFoto(event,'larga')">✕</button></div>`;
+  grid.innerHTML = html; fotoSection.classList.remove('hidden'); fotoSection.scrollIntoView({behavior:'smooth'});
+}
+function triggerFoto(tipo) {
+  const input = document.getElementById('input-foto-' + tipo);
+  if (input) { input.onchange = (e) => onFotoSelected(e, tipo); input.click(); }
+}
+function onFotoSelected(e, tipo) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    STATE.fotosApagado[tipo] = ev.target.result;
+    const slot = document.getElementById('slot-' + tipo);
+    if (slot) { slot.classList.add('has-img'); let img = slot.querySelector('img'); if (!img) { img = document.createElement('img'); slot.prepend(img); } img.src = ev.target.result; }
+    toast('Foto ' + tipo + ' capturada', 'success');
+  };
+  reader.readAsDataURL(file);
+}
+function clearFoto(e, tipo) {
+  e.stopPropagation(); STATE.fotosApagado[tipo] = null;
+  const slot = document.getElementById('slot-' + tipo);
+  if (slot) { slot.classList.remove('has-img'); const img = slot.querySelector('img'); if (img) img.remove(); }
+}
+function updateArmaStatus(accion, armaInfo) {
+  const activa = accion === 'ACTIVAR'; STATE.armaActiva = activa;
+  const card = document.getElementById('arma-status-card'), badge = document.getElementById('arma-status-badge'), statArma = document.getElementById('stat-arma');
+  if (armaInfo) document.getElementById('arma-tipo-text').textContent = 'ARMA ' + (armaInfo.tipo || '—');
+  document.getElementById('arma-qr-display').textContent = STATE.qrActual || '—';
+  document.getElementById('arma-last-event').textContent = accion;
+  card.classList.toggle('activa', activa);
+  badge.className = 'arma-badge ' + (activa ? 'on' : 'off'); badge.textContent = activa ? '● ACTIVA' : '● INACTIVA';
+  statArma.textContent = activa ? 'ACTIVA' : 'INACTIVA'; statArma.style.color = activa ? 'var(--green)' : 'var(--text-bright)';
+  document.getElementById('mon-arma-status').textContent = 'ARMA: ' + (activa ? 'ACTIVA' : 'INACTIVA');
+}
+
+// ============================================================
+// MONITOREO (ELEMENTO)
+// ============================================================
+function startMonitoreo() {
+  STATE.monitoreoSecsLeft = 3600; updateMonitoreoTimers();
+  if (STATE.monitoreoInterval) clearInterval(STATE.monitoreoInterval);
+  STATE.monitoreoInterval = setInterval(() => {
+    STATE.monitoreoSecsLeft--;
+    if (STATE.monitoreoSecsLeft <= 0) {
+      STATE.monitoreoSecsLeft = 0;
+      toast('⚠ REPORTAR POSICIÓN AHORA', 'error');
+      if (navigator.vibrate) navigator.vibrate([300,100,300,100,300]);
+    }
+    updateMonitoreoTimers();
+  }, 1000);
+}
+function stopMonitoreo() { if (STATE.monitoreoInterval) { clearInterval(STATE.monitoreoInterval); STATE.monitoreoInterval = null; } }
+function updateMonitoreoTimers() {
+  const s = STATE.monitoreoSecsLeft;
+  const mm = String(Math.floor(s/60)).padStart(2,'0'), ss = String(s%60).padStart(2,'0');
+  const timeStr = mm + ':' + ss, urgent = s <= 300;
+  ['mon-timer','mon-timer-dash'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = timeStr; el.classList.toggle('urgent', urgent); } });
+}
+async function doCheckin() {
+  showLoading('OBTENIENDO POSICIÓN...');
+  try {
+    const coords = await getCurrentCoords();
+    const res = await callBackend('monitoreo', {
+      idElemento: STATE.usuario.id, nombreElemento: STATE.usuario.nombre,
+      lat: coords ? coords.lat : null, lng: coords ? coords.lng : null,
+      precision: coords ? coords.accuracy : null, estadoArma: STATE.armaActiva ? 'ACTIVA' : 'INACTIVA'
+    });
+    if (res.success) {
+      STATE.monitoreoSecsLeft = 3600; updateMonitoreoTimers();
+      const coordText = coords ? `LAT: ${coords.lat.toFixed(6)} | LNG: ${coords.lng.toFixed(6)}` : 'POSICIÓN NO DISPONIBLE';
+      ['coord-display','coord-dash'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = coordText; });
+      STATE.monitoreoHist.unshift({ ts: new Date().toLocaleTimeString('es-MX'), coords: coordText, arma: STATE.armaActiva ? 'ACTIVA' : 'INACTIVA' });
+      updateMonHist(); toast('POSICIÓN REPORTADA', 'success');
+      document.querySelectorAll('.btn-check-in').forEach(b => { b.classList.add('checked'); setTimeout(() => b.classList.remove('checked'), 2000); });
+    } else { toast(res.error, 'error'); }
+  } catch(e) { toast('Error al reportar: ' + e.message, 'error'); }
+  finally { hideLoading(); }
+}
+function updateMonHist() {
+  const list = document.getElementById('mon-hist-list');
+  if (STATE.monitoreoHist.length === 0) { list.innerHTML = '<div class="empty-state">— SIN REPORTES HOY —</div>'; return; }
+  list.innerHTML = STATE.monitoreoHist.slice(0,10).map(h => `
+    <div class="hist-item" style="border-left-color:var(--amber)">
+      <div class="hist-header"><span class="hist-accion" style="color:var(--amber);font-size:13px">${h.ts}</span><span class="tag tag-dim">${h.arma}</span></div>
+      <div class="hist-detail">${h.coords}</div>
+    </div>`).join('');
+}
+
+// ============================================================
+// HISTORIAL (ELEMENTO)
+// ============================================================
+async function loadHistorial() {
+  showLoading('CARGANDO HISTORIAL...');
+  try {
+    const res = await callBackend('getHistorial', { idElemento: STATE.usuario.id, limit: 30 });
+    hideLoading();
+    const list = document.getElementById('hist-list');
+    if (res.success && res.registros.length > 0) {
+      list.innerHTML = res.registros.map(r => {
+        const ts = new Date(r.fechaHora);
+        const tsStr = ts.toLocaleDateString('es-MX',{day:'2-digit',month:'short'}) + ' ' + ts.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
+        return `<div class="hist-item ${r.accion.toLowerCase()}"><div class="hist-header"><span class="hist-accion ${r.accion.toLowerCase()}">${r.accion}</span><span class="hist-ts">${tsStr}</span></div><div class="hist-detail">QR: ${r.qrCode} | ${r.tipoArma} | ${r.turno}</div></div>`;
+      }).join('');
+    } else { list.innerHTML = '<div class="empty-state">— SIN REGISTROS —</div>'; }
+  } catch(e) { hideLoading(); toast('Error cargando historial', 'error'); }
+}
+
+// ============================================================
+// ALTA ARMA (desde panel maestro)
+// ============================================================
+async function submitRegistrarArma() {
+  const qrCode = document.getElementById('arma-qr').value.trim();
+  const tipo = document.getElementById('arma-tipo').value;
+  const calibre = document.getElementById('arma-calibre').value.trim();
+  const numeroSerie = document.getElementById('arma-serie').value.trim();
+  const estanteria = document.getElementById('arma-estanteria').value.trim();
+  if (!qrCode || !numeroSerie) { toast('QR y número de serie son requeridos', 'error'); return; }
+  showLoading('REGISTRANDO ARMA...');
+  try {
+    const res = await callBackend('registrarArma', { datos: { qrCode, tipo, calibre, numeroSerie, descripcion: tipo + ' CAL.' + calibre, estanteria } });
+    if (res.success) {
+      closeModal('modal-arma'); toast(res.message, 'success');
+      ['arma-qr','arma-calibre','arma-serie','arma-estanteria'].forEach(id => document.getElementById(id).value = '');
+    } else { toast(res.error || 'Error al registrar arma', 'error'); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+  finally { hideLoading(); }
+}
+
+// ============================================================
+// GEOLOCALIZACIÓN
+// ============================================================
+function getCurrentCoords() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+      () => resolve(null), { timeout: 8000, maximumAge: 60000 }
+    );
+  });
+}
+
+// ============================================================
+// ================  PANEL MAESTRO  ==========================
+// ============================================================
+function initMasterDashboard() {
+  try { initLeafletMap(); } catch(e) { toast('No se pudo cargar el mapa: ' + e.message, 'error'); }
+  solicitarPermisoNotificacionesSiNecesario();
+  refreshMasterData();
+  if (STATE.masterPollInterval) clearInterval(STATE.masterPollInterval);
+  STATE.masterPollInterval = setInterval(refreshMasterData, 45000); // poll cada 45s
+}
+function stopMasterPolling() { if (STATE.masterPollInterval) { clearInterval(STATE.masterPollInterval); STATE.masterPollInterval = null; } }
+
+function initLeafletMap() {
+  if (STATE.leafletMap) { setTimeout(() => STATE.leafletMap.invalidateSize(), 200); return; }
+  if (typeof L === 'undefined') {
+    // Leaflet aún no ha terminado de cargar (o la red lo bloqueó). Reintenta
+    // unas cuantas veces antes de avisar que el mapa no está disponible.
+    STATE._mapRetries = (STATE._mapRetries || 0) + 1;
+    if (STATE._mapRetries <= 6) { setTimeout(initLeafletMap, 800); return; }
+    document.getElementById('map-container').innerHTML =
+      '<div class="empty-state">MAPA NO DISPONIBLE — no se pudo cargar Leaflet desde jsdelivr.net.<br>Verifica que tu red permita jsdelivr.net.</div>';
+    return;
+  }
+  STATE.leafletMap = L.map('map-container').setView([25.4383, -100.9737], 11); // Saltillo, Coahuila
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap', maxZoom: 19
+  }).addTo(STATE.leafletMap);
+  setTimeout(() => STATE.leafletMap.invalidateSize(), 200);
+}
+
+async function refreshMasterData() {
+  // Cada carga es independiente: si una falla, las demás se ejecutan igual
+  // y el error se muestra en pantalla en vez de quedar silencioso en consola.
+  const resultados = await Promise.allSettled([
+    cargarUltimasUbicaciones(),
+    cargarAlertas(),
+    cargarElementosMaestro(),
+    cargarArmamentoParaQR()
+  ]);
+  resultados.forEach(r => { if (r.status === 'rejected') toast('Error del panel maestro: ' + (r.reason && r.reason.message || r.reason), 'error'); });
+}
+
+async function cargarArmamentoParaQR() {
+  const res = await callBackend('getArmamento', {});
+  if (!res.success) { toast('Error cargando armamento: ' + res.error, 'error'); return; }
+  const sel = document.getElementById('select-qr-arma');
+  const currentVal = sel.value;
+  sel.innerHTML = '<option value="">— seleccionar arma —</option>' +
+    res.armas.filter(a => a.activo).map(a =>
+      `<option value="${a.qrCode}">${a.tipo || 'S/T'} ${a.calibre || ''} — SERIE ${a.numeroSerie || 'S/D'} (QR: ${a.qrCode})</option>`
+    ).join('');
+  sel.value = currentVal;
+}
+
+function prepararEImprimir(holderId, fichaId, titulo) {
+  const holder = document.getElementById(holderId);
+  const ficha = document.getElementById(fichaId);
+
+  let imgSrc = '';
+  const canvas = holder.querySelector('canvas');
+  const imgEl = holder.querySelector('img');
+  if (canvas) {
+    try { imgSrc = canvas.toDataURL('image/png'); } catch (e) { imgSrc = ''; }
+  } else if (imgEl) {
+    imgSrc = imgEl.src;
+  }
+
+  if (!imgSrc) {
+    toast('No hay un QR generado todavía — selecciona el elemento/arma antes de imprimir', 'error');
+    return;
+  }
+
+  // Ventana nueva e independiente, sin el CSS ni el layout de la app —
+  // así la impresión no depende para nada del estado de la SPA (que era
+  // justo lo que causaba la hoja en blanco).
+  const ventana = window.open('', '_blank', 'width=420,height=650');
+  if (!ventana) {
+    toast('Tu navegador bloqueó la ventana de impresión — permite ventanas emergentes para este sitio e inténtalo de nuevo', 'error');
+    return;
+  }
+
+  const fichaHtml = ficha.innerHTML.replace(/color:\s*var\([^)]*\)/g, 'color:#000');
+
+  ventana.document.open();
+  ventana.document.write(
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + titulo + '</title>' +
+    '<style>' +
+    'body{font-family:Arial,Helvetica,sans-serif;text-align:center;padding:24px;color:#000;background:#fff;}' +
+    'h2{margin-bottom:18px;font-size:18px;}' +
+    'img{width:220px;height:220px;}' +
+    '.ficha{margin-top:18px;font-size:13px;text-align:left;display:inline-block;line-height:1.7;color:#000;}' +
+    '.ficha b{color:#000;}' +
+    '</style></head><body>' +
+    '<h2>' + titulo + '</h2>' +
+    '<img src="' + imgSrc + '">' +
+    '<div class="ficha">' + fichaHtml + '</div>' +
+    '<script>window.onload = function(){ setTimeout(function(){ window.print(); }, 200); };</' + 'script>' +
+    '</body></html>'
+  );
+  ventana.document.close();
+}
+
+function cargarPreviewQRArma() {
+  const qrCode = document.getElementById('select-qr-arma').value;
+  const holder = document.getElementById('qr-arma-canvas-holder');
+  const fichaBox = document.getElementById('qr-arma-ficha-print');
+  const printBtn = document.getElementById('btn-print-qr-arma');
+  holder.innerHTML = '';
+  fichaBox.classList.add('hidden'); printBtn.style.display = 'none';
+  if (!qrCode) return;
+
+  const sel = document.getElementById('select-qr-arma');
+  const etiqueta = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : qrCode;
+
+  if (typeof QRCode === 'undefined') {
+    holder.innerHTML = '<div class="empty-state" style="color:#333;">IMAGEN QR NO DISPONIBLE<br>(red bloqueó jsdelivr.net)</div>';
+    toast('No se pudo generar la imagen QR — revisa el acceso a jsdelivr.net', 'warning');
+  } else {
+    // IMPORTANTE: el texto codificado es EXACTAMENTE el QR_CODE guardado en
+    // ARMAMENTO — es literalmente lo que la app compara al escanear para
+    // ACTIVAR/DESACTIVAR. No es un JSON, es el código puro.
+    new QRCode(holder, { text: qrCode, width: 190, height: 190, colorDark: '#000000', colorLight: '#ffffff', typeNumber: 0, correctLevel: QRCode.CorrectLevel.M });
+  }
+
+  fichaBox.innerHTML = `<div style="text-align:center;"><b>${etiqueta}</b></div><div class="mt-8"><b>CÓDIGO:</b> ${qrCode}</div>`;
+  fichaBox.classList.remove('hidden'); printBtn.style.display = 'block';
+}
+
+async function cargarUltimasUbicaciones() {
+  const res = await callBackend('getUltimasUbicaciones', {});
+  if (!res.success) { toast('Error cargando ubicaciones: ' + res.error, 'error'); return; }
+  const bounds = [];
+  Object.values(STATE.mapMarkers).forEach(m => STATE.leafletMap.removeLayer(m));
+  STATE.mapMarkers = {};
+  res.ubicaciones.forEach(u => {
+    const color = u.minutosDesdeReporte > 70 ? '#cc0000' : (u.estadoArma === 'ACTIVA' ? '#00cc44' : '#ffaa00');
+    const marker = L.circleMarker([u.lat, u.lng], { radius: 9, color: color, fillColor: color, fillOpacity: 0.7, weight: 2 }).addTo(STATE.leafletMap);
+    marker.bindPopup(`<b>${u.nombre}</b><br>Badge: ${u.badge} | ${u.rango}<br>Unidad: ${u.unidad}<br>Arma: ${u.estadoArma}<br>Hace ${u.minutosDesdeReporte} min`);
+    STATE.mapMarkers[u.idElemento] = marker;
+    bounds.push([u.lat, u.lng]);
+  });
+  if (bounds.length > 0) { try { STATE.leafletMap.fitBounds(bounds, { padding: [30,30], maxZoom: 14 }); } catch(e) {} }
+
+  const sel = document.getElementById('select-trazo');
+  const selQr = document.getElementById('select-qr');
+  const currentVal = sel.value;
+  sel.innerHTML = '<option value="">— seleccionar elemento —</option>' +
+    res.ubicaciones.map(u => `<option value="${u.idElemento}">${u.nombre} (${u.badge})</option>`).join('');
+  sel.value = currentVal;
+}
+
+async function cargarTrazoSeleccionado() {
+  const idElemento = document.getElementById('select-trazo').value;
+  if (STATE.trazoLayer) { STATE.leafletMap.removeLayer(STATE.trazoLayer); STATE.trazoLayer = null; }
+  if (!idElemento) return;
+  const res = await callBackend('getTrazoElemento', { idElemento, horas: 12 });
+  if (!res.success || res.puntos.length === 0) { toast('Sin trazo reciente para este elemento', 'warning'); return; }
+  const latlngs = res.puntos.map(p => [p.lat, p.lng]);
+  STATE.trazoLayer = L.polyline(latlngs, { color: '#2288ff', weight: 3, opacity: 0.8 }).addTo(STATE.leafletMap);
+  STATE.leafletMap.fitBounds(latlngs, { padding: [30,30] });
+}
+
+async function cargarAlertas() {
+  const res = await callBackend('checkAlertas', {});
+  if (!res.success) { toast('Error cargando alertas: ' + res.error, 'error'); return; }
+  const list = document.getElementById('alertas-list');
+  const countLabel = document.getElementById('alert-count-label');
+  countLabel.textContent = res.alertasActivas.length > 0 ? `(${res.alertasActivas.length})` : '';
+
+  if (res.alertasActivas.length === 0) { list.innerHTML = '<div class="empty-state">— SIN ALERTAS —</div>'; }
+  else {
+    list.innerHTML = res.alertasActivas.map(a => `
+      <div class="alert-card">
+        <div class="alert-name">${a.nombre}</div>
+        <div class="alert-detail">Sin reportar hace ${a.minutosAtraso} min | Última posición: ${a.lat ? a.lat.toFixed(5) + ', ' + a.lng.toFixed(5) : 'DESCONOCIDA'}</div>
+        <div class="alert-actions">
+          <button class="btn-mini" onclick='mostrarFicha(${JSON.stringify(a.ficha)})'>VER FICHA</button>
+          ${a.lat ? `<button class="btn-mini" onclick="centrarMapaEn(${a.lat},${a.lng})">VER EN MAPA</button>` : ''}
+        </div>
+      </div>`).join('');
+  }
+
+  // Disparar notificación web para alertas nuevas que aún no habíamos visto en esta sesión
+  res.alertasActivas.forEach(a => {
+    if (!STATE.alertasConocidas[a.idAlerta]) {
+      STATE.alertasConocidas[a.idAlerta] = true;
+      dispararNotificacionAlerta(a);
+    }
+  });
+}
+
+function centrarMapaEn(lat, lng) { STATE.leafletMap.setView([lat,lng], 15); }
+
+function mostrarFicha(ficha) {
+  if (!ficha) { toast('Ficha no disponible', 'warning'); return; }
+  const arma = ficha.armaAsignada;
+  document.getElementById('ficha-content').innerHTML = `
+    ${ficha.foto ? `<img src="${ficha.foto}" style="width:100%;max-width:150px;display:block;margin:0 auto 16px;border:1px solid var(--border);">` : ''}
+    <div class="ficha-print">
+      <div><b>NOMBRE:</b> ${ficha.nombre}</div>
+      <div><b>BADGE:</b> ${ficha.badge}</div>
+      <div><b>RANGO:</b> ${ficha.rango}</div>
+      <div><b>UNIDAD:</b> ${ficha.unidad}</div>
+      <div><b>TELÉFONO:</b> ${ficha.telefono}</div>
+      <div><b>PORTE:</b> ${ficha.porte || 'S/D'}</div>
+      <div><b>TIPO ARMAMENTO:</b> ${ficha.tipoArmamento}</div>
+      <div><b>ARMA ASIGNADA:</b> ${arma ? (arma.tipo + ' CAL.' + arma.calibre + ' SERIE ' + arma.serie) : 'SIN ARMA ACTIVA'}</div>
+    </div>`;
+  openModal('modal-ficha');
+}
+
+async function cargarElementosMaestro() {
+  const res = await callBackend('getElementosMaestro', {});
+  if (!res.success) { toast('Error cargando elementos: ' + res.error, 'error'); return; }
+
+  const pendientes = res.elementos.filter(e => e.activo === 'PENDIENTE');
+  const pList = document.getElementById('pendientes-list');
+  pList.innerHTML = pendientes.length === 0 ? '<div class="empty-state">— SIN SOLICITUDES —</div>' :
+    pendientes.map(e => `
+      <div class="approval-card">
+        <div class="approval-info"><div class="approval-name">${e.nombre}</div><div class="approval-detail">Badge ${e.badge} | Tel. ${e.telefono} | ${e.rango} | ${e.unidad}</div></div>
+        <button class="btn-mini" style="flex:none;padding:8px 12px;color:var(--green);border-color:var(--green);" onclick="aprobar('${e.id}',true)">APROBAR</button>
+        <button class="btn-mini" style="flex:none;padding:8px 12px;color:var(--red);border-color:var(--red);" onclick="aprobar('${e.id}',false)">RECHAZAR</button>
+      </div>`).join('');
+
+  const eList = document.getElementById('elementos-master-list');
+  eList.innerHTML = res.elementos.length === 0 ? '<div class="empty-state">— SIN ELEMENTOS —</div>' :
+    res.elementos.map(e => `
+      <div class="approval-card">
+        <div class="approval-info"><div class="approval-name">${e.nombre}</div><div class="approval-detail">Badge ${e.badge} | Tel. ${e.telefono} | ${e.rango}</div></div>
+        <span class="tag ${e.activo==='SI'?'tag-green':(e.activo==='PENDIENTE'?'tag-amber':'tag-dim')}">${e.activo}</span>
+        <button class="btn-mini" style="flex:none;padding:8px 10px;" onclick="abrirResetPassword('${e.id}','${e.nombre.replace(/'/g,"\\'")}')">🔑 CLAVE</button>
+        ${e.activo === 'SI' ? `<button class="btn-mini" style="flex:none;padding:8px 10px;" onclick="aprobar('${e.id}',false)">DESACTIVAR</button>` : ''}
+      </div>`).join('');
+
+  // Poblar selector de QR
+  const selQr = document.getElementById('select-qr');
+  const currentQrVal = selQr.value;
+  selQr.innerHTML = '<option value="">— seleccionar elemento —</option>' +
+    res.elementos.filter(e => e.activo === 'SI').map(e => `<option value="${e.id}">${e.nombre} (${e.badge})</option>`).join('');
+  selQr.value = currentQrVal;
+}
+
+async function aprobar(idElemento, aprobar) {
+  showLoading(aprobar ? 'APROBANDO...' : 'ACTUALIZANDO...');
+  try {
+    const res = await callBackend('aprobarElemento', { idElemento, aprobar });
+    if (res.success) { toast(res.message, 'success'); cargarElementosMaestro(); }
+    else { toast(res.error, 'error'); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+  finally { hideLoading(); }
+}
+
+let STATE_RESET_ID_ELEMENTO = null;
+function abrirResetPassword(idElemento, nombre) {
+  STATE_RESET_ID_ELEMENTO = idElemento;
+  document.getElementById('reset-pass-nombre').textContent = 'Elemento: ' + nombre;
+  document.getElementById('reset-pass-input').value = '';
+  openModal('modal-reset-pass');
+}
+async function confirmarResetPassword() {
+  const nuevaPassword = document.getElementById('reset-pass-input').value;
+  if (!nuevaPassword || nuevaPassword.length < 6) { toast('La contraseña debe tener al menos 6 caracteres', 'error'); return; }
+  showLoading('RESTABLECIENDO CONTRASEÑA...');
+  try {
+    const res = await callBackend('resetPassword', { idElemento: STATE_RESET_ID_ELEMENTO, nuevaPassword });
+    if (res.success) { toast(res.message, 'success'); closeModal('modal-reset-pass'); }
+    else { toast(res.error, 'error'); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+  finally { hideLoading(); }
+}
+
+// ---- Generador de QR de identificación ----
+async function cargarPreviewQR() {
+  const idElemento = document.getElementById('select-qr').value;
+  const holder = document.getElementById('qr-canvas-holder');
+  const fichaBox = document.getElementById('qr-ficha-print');
+  const printBtn = document.getElementById('btn-print-qr');
+  holder.innerHTML = '';
+  fichaBox.classList.add('hidden'); printBtn.style.display = 'none';
+  if (!idElemento) return;
+
+  const res = await callBackend('generarPayloadQR', { idElemento });
+  if (!res.success) { toast(res.error || 'No se pudo generar el QR', 'error'); return; }
+
+  if (typeof QRCode === 'undefined') {
+    holder.innerHTML = '<div class="empty-state" style="color:#333;">IMAGEN QR NO DISPONIBLE<br>(red bloqueó jsdelivr.net)</div>';
+    toast('No se pudo generar la imagen QR — revisa el acceso a jsdelivr.net', 'warning');
+  } else {
+    // typeNumber:0 = la librería calcula automáticamente la versión de QR
+    // necesaria según el largo del texto. Con un valor fijo (el default de la
+    // librería), un payload largo (como el JSON de ficha) simplemente no cabe
+    // y el QR se dibuja en blanco sin avisar del error.
+    new QRCode(holder, { text: res.payload, width: 190, height: 190, colorDark: '#000000', colorLight: '#ffffff', typeNumber: 0, correctLevel: QRCode.CorrectLevel.M });
+  }
+
+  const f = res.ficha, arma = f.armaAsignada;
+  fichaBox.innerHTML = `
+    <div><b>NOMBRE:</b> ${f.nombre}</div><div><b>BADGE:</b> ${f.badge}</div>
+    <div><b>RANGO:</b> ${f.rango}</div><div><b>PORTE:</b> ${f.porte || 'S/D'}</div>
+    <div><b>ARMA:</b> ${arma ? (arma.tipo + ' SERIE ' + arma.serie) : 'SIN ASIGNAR'}</div>`;
+  fichaBox.classList.remove('hidden'); printBtn.style.display = 'block';
+}
+
+// ============================================================
+// WEB NOTIFICATIONS API — panel maestro
+// ============================================================
+function solicitarPermisoNotificacionesSiNecesario() {
+  if (!('Notification' in window)) return; // navegador sin soporte
+  if (Notification.permission === 'default') {
+    document.getElementById('notif-banner').classList.remove('hidden');
+  }
+}
+function solicitarPermisoNotificaciones() {
+  if (!('Notification' in window)) { toast('Este navegador no soporta notificaciones', 'warning'); return; }
+  Notification.requestPermission().then(perm => {
+    document.getElementById('notif-banner').classList.add('hidden');
+    if (perm === 'granted') toast('Notificaciones activadas', 'success');
+    else toast('Permiso de notificaciones denegado', 'warning');
+  });
+}
+function dispararNotificacionAlerta(alerta) {
+  // Siempre sonar/vibrar y mostrar toast, aunque no haya permiso de notificación del navegador
+  if (navigator.vibrate) navigator.vibrate([200,100,200,100,400]);
+  toast('⚠ ALERTA: ' + alerta.nombre + ' sin reportar hace ' + alerta.minutosAtraso + ' min', 'error');
+
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const body = 'Sin reportar posición hace ' + alerta.minutosAtraso + ' min.' +
+    (alerta.lat ? ' Última ubicación: ' + alerta.lat.toFixed(5) + ', ' + alerta.lng.toFixed(5) : '');
+  try {
+    const n = new Notification('SICOA — Alerta: ' + alerta.nombre, {
+      body: body,
+      // icon: 'https://tu-dominio.com/logo-sicoa.png', // opcional: sustituye por tu ícono institucional
+      tag: 'sicoa-alerta-' + alerta.idElemento, // evita duplicar notificaciones del mismo elemento
+      requireInteraction: true
+    });
+    n.onclick = () => {
+      window.focus();
+      mostrarFicha(alerta.ficha);
+      n.close();
+    };
+  } catch(e) { console.warn('No se pudo mostrar notificación:', e); }
+}
+
+// ============================================================
+// INSTALAR COMO APP (PWA) + PERMISOS DE UBICACIÓN Y NOTIFICACIONES
+// ============================================================
+let deferredInstallPrompt = null;
+let yaInstalada = false;
+
+function appEstaInstalada() {
+  try {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  } catch (e) { return false; }
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if (!appEstaInstalada()) document.getElementById('install-fab').classList.remove('hidden');
+});
+window.addEventListener('appinstalled', () => {
+  yaInstalada = true;
+  toast('SICOA instalado correctamente', 'success');
+  document.getElementById('install-fab').classList.add('hidden');
+});
+
+function abrirOnboarding() {
+  actualizarEstadoPermisos();
+  openModal('modal-onboarding');
+}
+
+function esIOS() { return /iPhone|iPad|iPod/.test(navigator.userAgent); }
+
+function actualizarEstadoPermisos() {
+  const elNotif = document.getElementById('perm-status-notif');
+  if ('Notification' in window) {
+    const p = Notification.permission;
+    elNotif.textContent = p === 'granted' ? 'ACTIVADO' : (p === 'denied' ? 'BLOQUEADO — actívalo en ajustes del navegador' : 'PENDIENTE');
+    elNotif.className = 'perm-status ' + (p === 'granted' ? 'ok' : (p === 'denied' ? 'denied' : 'pending'));
+  } else if (esIOS() && !appEstaInstalada()) {
+    elNotif.textContent = 'EN iPHONE SOLO FUNCIONA INSTALADO — usa "INSTALAR / AGREGAR A PANTALLA DE INICIO" abajo y ábrelo desde ese ícono (no desde Safari)';
+    elNotif.className = 'perm-status pending';
+  } else {
+    elNotif.textContent = 'NO DISPONIBLE EN ESTE NAVEGADOR'; elNotif.className = 'perm-status denied';
+  }
+
+  const elLoc = document.getElementById('perm-status-loc');
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'geolocation' }).then(status => {
+      const map = { granted: 'ACTIVADO', denied: 'BLOQUEADO — actívalo en ajustes del navegador', prompt: 'PENDIENTE' };
+      elLoc.textContent = map[status.state] || 'PENDIENTE';
+      elLoc.className = 'perm-status ' + (status.state === 'granted' ? 'ok' : (status.state === 'denied' ? 'denied' : 'pending'));
+      status.onchange = actualizarEstadoPermisos;
+    }).catch(() => { elLoc.textContent = 'SE PEDIRÁ AL USAR EL MAPA/CHECK-IN'; elLoc.className = 'perm-status pending'; });
+  } else {
+    elLoc.textContent = 'SE PEDIRÁ AL USAR EL MAPA/CHECK-IN'; elLoc.className = 'perm-status pending';
+  }
+
+  const elCam = document.getElementById('perm-status-camara');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    elCam.textContent = 'NO DISPONIBLE EN ESTE NAVEGADOR'; elCam.className = 'perm-status denied';
+  } else if (navigator.permissions && navigator.permissions.query) {
+    // No todos los navegadores soportan consultar 'camera' (Safari no lo hace de forma confiable)
+    navigator.permissions.query({ name: 'camera' }).then(status => {
+      const map = { granted: 'ACTIVADO', denied: 'BLOQUEADO — actívalo en ajustes del navegador', prompt: 'PENDIENTE' };
+      elCam.textContent = map[status.state] || 'PENDIENTE';
+      elCam.className = 'perm-status ' + (status.state === 'granted' ? 'ok' : (status.state === 'denied' ? 'denied' : 'pending'));
+      status.onchange = actualizarEstadoPermisos;
+    }).catch(() => { elCam.textContent = 'SE PEDIRÁ AL TOCAR "HABILITAR PERMISOS"'; elCam.className = 'perm-status pending'; });
+  } else {
+    elCam.textContent = 'SE PEDIRÁ AL TOCAR "HABILITAR PERMISOS"'; elCam.className = 'perm-status pending';
+  }
+}
+
+// Igual que BitFields.iniciarCamara() + obtenerUbicacion(): se llama justo al
+// Se llama SINCRÓNICAMENTE dentro del onclick del botón "ACCEDER AL SISTEMA",
+// antes de cualquier "await" — así el navegador reconoce la petición como
+// parte del clic del usuario y muestra su diálogo real de permiso.
+function dispararPermisosNativos() {
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(stream => {
+        // Dejamos el stream listo ("precalentado") para que el lector QR lo
+        // reutilice directo, sin pedir la cámara una segunda vez.
+        STATE.camStreamPrewarm = stream;
+        actualizarEstadoPermisos();
+      })
+      .catch(() => { actualizarEstadoPermisos(); });
+  }
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(() => actualizarEstadoPermisos(), () => actualizarEstadoPermisos());
+  }
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission().then(() => actualizarEstadoPermisos());
+  }
+}
+function detenerPrewarmCamara() {
+  if (STATE.camStreamPrewarm) {
+    STATE.camStreamPrewarm.getTracks().forEach(t => t.stop());
+    STATE.camStreamPrewarm = null;
+  }
+}
+
+function solicitarTodosLosPermisos() {
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      () => { actualizarEstadoPermisos(); toast('Ubicación habilitada', 'success'); },
+      () => { actualizarEstadoPermisos(); toast('Ubicación no concedida — revisa los permisos del sitio en tu navegador', 'warning'); },
+      { timeout: 8000 }
+    );
+  } else {
+    toast('Este navegador no soporta geolocalización', 'warning');
+  }
+
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        stream.getTracks().forEach(t => t.stop()); // solo pedimos el permiso, no dejamos la cámara encendida
+        actualizarEstadoPermisos();
+        toast('Cámara habilitada', 'success');
+      })
+      .catch(() => {
+        actualizarEstadoPermisos();
+        toast('Cámara no concedida — revisa permisos del sitio o usa "❓ La cámara no funciona" en la pestaña Escanear', 'warning');
+      });
+  }
+
+  if ('Notification' in window) {
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().then(() => actualizarEstadoPermisos());
+    } else {
+      actualizarEstadoPermisos();
+    }
+  }
+}
+
+function iniciarInstalacion() {
+  if (appEstaInstalada()) { toast('SICOA ya está instalado en este dispositivo', 'success'); return; }
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice.then(choice => {
+      if (choice.outcome === 'accepted') toast('Instalando SICOA...', 'success');
+      deferredInstallPrompt = null;
+    });
+  } else {
+    mostrarInstruccionesManualPorSO();
+  }
+}
+
+function mostrarInstruccionesManualPorSO() {
+  const box = document.getElementById('install-instructions-box');
+  const ua = navigator.userAgent;
+  const isIOS = /iPhone|iPad|iPod/.test(ua);
+  const isAndroid = /Android/.test(ua);
+  let html;
+  if (isIOS) {
+    html = `<ol><li>Toca el botón <b>Compartir</b> (el ícono con la flecha hacia arriba) en la barra de Safari.</li><li>Desplázate y elige <b>"Agregar a pantalla de inicio"</b>.</li><li>Toca <b>Agregar</b>. El ícono de SICOA quedará en tu pantalla de inicio, como una app.</li></ol><div class="field-hint mt-8">Debes usar Safari — Chrome en iPhone no puede instalar apps a la pantalla de inicio.</div>`;
+  } else if (isAndroid) {
+    html = `<ol><li>Toca el menú <b>⋮</b> (tres puntos) en la esquina superior de Chrome.</li><li>Elige <b>"Instalar app"</b> o <b>"Agregar a pantalla de inicio"</b>.</li><li>Confirma tocando <b>Instalar</b>.</li></ol>`;
+  } else {
+    html = `<ol><li>Haz clic en el ícono de instalación (⊕) en la barra de direcciones de Chrome/Edge, a la derecha de la URL.</li><li>Si no aparece, abre el menú <b>⋮</b> → <b>"Instalar SICOA..."</b></li></ol>`;
+  }
+  box.innerHTML = html;
+  box.classList.remove('hidden');
+}
+
+// ============================================================
+// CARGA DIFERIDA DE LIBRERÍAS EXTERNAS (jsQR, QRCode, Leaflet)
+// Se agregan dinámicamente DESPUÉS de que todo lo demás ya está listo.
+// Si la red bloquea jsdelivr.net, esto NUNCA congela el resto de
+// la app — solo desactiva cámara QR / generador QR / mapa con un aviso claro.
+// ============================================================
+window.LIB_STATUS = { jsQR: false, QRCode: false, Leaflet: false };
+
+function cargarScriptExterno(src, nombre, avisoSiFalla) {
+  const s = document.createElement('script');
+  s.src = src;
+  s.onload = () => { window.LIB_STATUS[nombre] = true; };
+  s.onerror = () => {
+    window.LIB_STATUS[nombre] = false;
+    console.warn('No se pudo cargar ' + nombre + ' desde ' + src);
+    if (avisoSiFalla) toast(avisoSiFalla, 'warning');
+  };
+  document.body.appendChild(s);
+}
+function cargarCSSExterno(href) {
+  const l = document.createElement('link');
+  l.rel = 'stylesheet'; l.href = href;
+  l.onerror = () => console.warn('No se pudo cargar hoja de estilo: ' + href);
+  document.head.appendChild(l);
+}
+
+cargarCSSExterno('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css');
+cargarScriptExterno('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js', 'jsQR', null);
+cargarScriptExterno('https://cdn.jsdelivr.net/npm/davidshimjs-qrcodejs@0.0.2/qrcode.min.js', 'QRCode', null);
+cargarScriptExterno('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js', 'Leaflet', null);
+
+// ============================================================
+// INICIALIZACIÓN GENERAL
+// ============================================================
+window.addEventListener('load', () => {
+  document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', (e) => { if (e.target === m) m.classList.remove('show'); }));
+  document.getElementById('login-user').addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g,'').slice(0,10); });
+  document.getElementById('reg-telefono').addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g,'').slice(0,10); });
+  if (appEstaInstalada()) yaInstalada = true;
+  toast('SICOA v2.0 — SISTEMA LISTO', 'success');
+});
+</script>
+</body>
+</html>
